@@ -1,0 +1,25 @@
+services:
+  - type: worker          # pornește un proces de fundal
+    name: pump-radar-0830
+    env: python
+    region: frankfurt     # aproape de RO
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: >
+      python - <<'PY'
+      import json,os
+      open('config.json','w').write(json.dumps({
+        "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY",""),
+        "COINGECKO_API_KEY": os.environ.get("COINGECKO_API_KEY",""),
+        "LUNARCRUSH_API_KEY": os.environ.get("LUNARCRUSH_API_KEY","")
+      }))
+      import subprocess,sys
+      sys.exit(subprocess.call(["python","pump_radar_0830.py","--auto-0830"]))
+      PY
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: COINGECKO_API_KEY
+        sync: false
+      - key: LUNARCRUSH_API_KEY
+        sync: false
