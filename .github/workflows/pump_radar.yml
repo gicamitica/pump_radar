@@ -2,14 +2,14 @@ name: Pump Radar 08:30
 
 on:
   schedule:
-    - cron: '30 5 * * *'   # 05:30 UTC = 08:30 România vara (rularea zilnică)
-  workflow_dispatch: {}     # ca să poți rula manual
+    - cron: '30 5 * * *'   # 05:30 UTC = 08:30 România vara
+  workflow_dispatch: {}     # rulezi manual din Actions
 
 jobs:
   run:
     runs-on: ubuntu-latest
 
-    # Mapăm toate secretele în ENV o singură dată, cu fallback gol
+    # Mapăm secretele în ENV o singură dată
     env:
       COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY || '' }}
       LUNARCRUSH_API_KEY: ${{ secrets.LUNARCRUSH_API_KEY || '' }}
@@ -34,8 +34,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Pump Radar
-        # praguri relaxate + fallback garantat
+      - name: Run Pump Radar (relaxed filters + fallback)
         env:
           STRICT_FILTERS: "0"
           SOCIAL_REQUIRED: "0"
@@ -44,6 +43,7 @@ jobs:
           VOL_GROWTH_MIN: "10"
         run: |
           python pump_radar_0830.py
+          ls -al
 
       - name: Upload Excel
         uses: actions/upload-artifact@v4
@@ -51,7 +51,7 @@ jobs:
           name: Pump_Radar_0830
           path: Pump_Radar_*_0830.xlsx
 
-      # Email opțional — rulează doar dacă avem SMTP_USER setat în env
+      # Email opțional — rulează doar dacă SMTP_USER e setat
       - name: Send email with Excel (optional)
         if: ${{ env.SMTP_USER != '' }}
         uses: dawidd6/action-send-mail@v3
