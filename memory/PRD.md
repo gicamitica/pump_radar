@@ -23,20 +23,19 @@ PumpRadar is an AI-powered crypto pump/dump signal detection platform built with
 ```
 /app/
 ├── backend/
-│   ├── server.py          # FastAPI app (auth, crypto, payments, AI)
+│   ├── server.py          # FastAPI app (auth, crypto, payments, AI, scheduler)
 │   └── .env               # API keys & config
 ├── frontend/
 │   ├── src/
 │   │   ├── app/
-│   │   │   ├── router/    # AppRouter with OAuth callback
-│   │   │   ├── config/    # Navigation config (updated)
-│   │   │   └── providers/ # ThemeProvider (dark mode default)
 │   │   ├── modules/
 │   │   │   ├── crypto/
-│   │   │   │   └── ui/pages/
-│   │   │   │       ├── HistoryPage.tsx    # NEW
-│   │   │   │       ├── WatchlistPage.tsx  # NEW
-│   │   │   │       └── ...
+│   │   │   │   ├── ui/pages/
+│   │   │   │   │   ├── HistoryPage.tsx
+│   │   │   │   │   ├── WatchlistPage.tsx
+│   │   │   │   │   └── ...
+│   │   │   │   └── ui/components/
+│   │   │   │       └── AccuracyTracker.tsx  # NEW
 │   │   │   └── auth/
 │   │   └── shared/
 │   └── .env
@@ -47,134 +46,111 @@ PumpRadar is an AI-powered crypto pump/dump signal detection platform built with
 
 ## Implemented Features (All Complete)
 
+### PRO Daily Market Emails ✅ (NEW)
+- [x] **London Market Open (08:00 UTC)** - Email with top 5 PUMP + top 3 DUMP candidates
+- [x] **NYSE Market Open (14:30 UTC)** - Email with best signal candidates
+- [x] Beautiful HTML email template with:
+  - Fear & Greed Index
+  - Signal strength table
+  - AI Market Summary
+  - Direct link to dashboard
+- [x] Only sent to Pro subscribers with daily_market_emails enabled
+- [x] Scheduler jobs: `london_market_email`, `nyse_market_email`
+
+### Signal Accuracy Tracker ✅ (NEW)
+- [x] Tracks if PUMP/DUMP predictions came true after 1h, 4h, 24h
+- [x] Verifies predictions against real CoinGecko price data
+- [x] Calculates accuracy percentages per timeframe
+- [x] `/api/crypto/accuracy` endpoint returns aggregated stats
+- [x] **AccuracyTracker component** on dashboard with:
+  - Visual gauges for each timeframe
+  - Separate PUMP/DUMP accuracy stats
+  - Sample count for data reliability
+  - Average overall accuracy badge
+- [x] Scheduled hourly via `accuracy_tracker` job
+
 ### Authentication ✅
 - [x] Email/password registration and login with JWT
 - [x] Google OAuth via Emergent-managed auth
-- [x] Google login button on Login and Register pages
-- [x] AuthCallback handler for OAuth session exchange
 - [x] Email verification flow (via Resend)
 - [x] Password reset flow
-- [x] Token refresh
 
 ### Crypto Signals (AI-powered) ✅
-- [x] **Scientific Algorithm** with quantitative scoring:
-  - Volume/Market Cap ratio analysis (abnormal volume detection)
-  - Momentum divergence (1h vs 24h rate comparison)
-  - Trend alignment scoring
-  - Sentiment correlation (Fear & Greed Index)
-- [x] Hourly data fetching via APScheduler
+- [x] **Scientific Algorithm** with quantitative scoring
+- [x] Volume/Market Cap ratio analysis
+- [x] Momentum divergence (1h vs 24h comparison)
 - [x] Fear & Greed Index integration
-- [x] CoinGecko trending coins
 - [x] AI analysis via Gemini 2.5 Flash
-- [x] Scientific reasoning in signal explanations
 
 ### AI Customer Service ✅
 - [x] Intelligent chat powered by Gemini
-- [x] Real-time market context in responses
-- [x] Specific signal data mentioned (coins, scores, F&G index)
+- [x] Real-time market context
 - [x] English-only responses
-- [x] Helpful, concise, professional tone
 
 ### Super Admin Page ✅
 - [x] Hidden URL at `/super-admin`
-- [x] Protected by admin role check (returns 401 without auth)
-- [x] Shows "Access Denied" for non-admins
-- [x] User management table
-- [x] Grant free subscriptions (1 month / 1 year)
-- [x] Delete user accounts
-- [x] User statistics dashboard
+- [x] Protected by admin role
+- [x] User management
 
-### Signal History ✅ (NEW)
+### Signal History ✅
 - [x] `/history` page with chart and timeline views
 - [x] Last 48 hours of signal data
-- [x] Aggregated stats (total pumps/dumps, avg per hour)
-- [x] Expandable timeline entries with market summaries
-- [x] `/api/crypto/history` endpoint
-- [x] `/api/crypto/snapshots` endpoint with full detail
 
-### Watchlist Feature ✅ (NEW)
+### Watchlist Feature ✅
 - [x] `/watchlist` page with coin management
-- [x] Add/remove coins from watchlist
 - [x] Per-coin alert thresholds
-- [x] Toggle alerts for individual coins
-- [x] Persistent storage (localStorage + MongoDB)
-- [x] API endpoints: `/api/user/watchlist`, `/api/user/watchlist/add`, `/api/user/watchlist/{symbol}`
 
-### Email Alerts ✅ (NEW)
-- [x] Alert settings in user profile
-- [x] Email alerts for strong signals (≥85% strength)
-- [x] Watchlist-specific alerts with custom thresholds
-- [x] Global alerts for Pro subscribers
-- [x] Beautiful HTML email templates
-- [x] `/api/user/alerts` endpoint
+### Email Alerts ✅
+- [x] Alerts for strong signals (≥85% strength)
+- [x] Watchlist-specific alerts
 
 ### UI/UX ✅
-- [x] **Dark mode as default** (ThemeProvider updated)
-- [x] Updated sidebar navigation with History & Watchlist
-- [x] Signal cards with scientific reasoning
-- [x] Coin detail pages with recharts
-- [x] Subscription badge in header
-- [x] Light/Dark/System toggle
+- [x] Dark mode as default
+- [x] Updated sidebar navigation
 
-### Dashboard & UI ✅
-- [x] Signals Dashboard at /dashboard
-- [x] PUMP and DUMP signal tabs
-- [x] AI Market Intelligence summary
-- [x] Countdown to next refresh
-- [x] Signal cards with scientific reasoning
-- [x] Coin detail pages with charts
+---
 
-### Subscriptions (Stripe) ✅
-- [x] Free trial (24h)
-- [x] Pro Monthly ($29.99)
-- [x] Pro Annual ($199.99)
-- [x] Stripe Checkout integration
+## Scheduler Jobs
+
+| Job ID | Schedule | Description |
+|--------|----------|-------------|
+| `crypto_signals` | Every 1 hour | Fetch and analyze crypto signals |
+| `accuracy_tracker` | Every 1 hour | Verify past predictions against real prices |
+| `london_market_email` | 08:00 UTC | Send daily email at London market open |
+| `nyse_market_email` | 14:30 UTC | Send daily email at NYSE market open |
 
 ---
 
 ## API Endpoints
 
-### Authentication
-- `POST /api/auth/register` - Create account
-- `POST /api/auth/login` - Email/password login
-- `POST /api/auth/google` - Google OAuth exchange
-- `POST /api/auth/verify-email` - Verify email token
-- `GET /api/auth/me` - Get current user
-
 ### Crypto
 - `GET /api/crypto/signals` - Get latest signals
-- `GET /api/crypto/history` - Historical signal summary (auth required)
-- `GET /api/crypto/snapshots` - Detailed signal snapshots (public)
-- `GET /api/crypto/coin/{symbol}` - Coin detail with AI analysis
-- `POST /api/ai/chat` - AI customer service
+- `GET /api/crypto/history` - Historical signal summary
+- `GET /api/crypto/snapshots` - Detailed signal snapshots
+- `GET /api/crypto/accuracy` - **NEW** Signal accuracy statistics
 
 ### User Settings
 - `GET /api/user/watchlist` - Get user watchlist
-- `POST /api/user/watchlist/add` - Add coin to watchlist
+- `POST /api/user/watchlist/add` - Add coin
 - `DELETE /api/user/watchlist/{symbol}` - Remove coin
 - `GET /api/user/alerts` - Get alert settings
 - `POST /api/user/alerts` - Update alert settings
+- `GET /api/user/subscription` - Get subscription status
 
 ### Admin
-- `GET /api/admin/users` - List all users (admin only)
-- `PATCH /api/admin/users/{id}` - Update user subscription
+- `GET /api/admin/users` - List all users
+- `PATCH /api/admin/users/{id}` - Update subscription
 - `DELETE /api/admin/users/{id}` - Delete user
 
 ---
 
-## Test Results (Latest)
+## Test Results (Latest - Iteration 4)
 
-### Backend: 100% (14/14 tests)
-- All endpoints verified working
-- Signal data: 8 PUMP, 4 DUMP signals
-- Fear & Greed: 23 (Extreme Fear)
-- Coins analyzed: 95
-
-### Frontend: 90%
-- Dark mode default: ✅
-- Google OAuth button: ✅
-- Navigation updated: ✅
-- (Cloudflare rate limiting affected full e2e)
+### Backend: 100% (15/15 tests)
+- All new PRO features verified
+- Accuracy endpoint working
+- All scheduler jobs configured
+- Fixed timezone bug in subscription endpoint
 
 ---
 
@@ -189,29 +165,25 @@ PumpRadar is an AI-powered crypto pump/dump signal detection platform built with
 ### P3 (Nice to have)
 - [ ] Apple Auth (requires paid Apple Developer account)
 - [ ] LunarCrush full integration (requires paid API)
-- [ ] Mobile app
 - [ ] Telegram bot integration
-- [ ] Push notifications
+- [ ] Mobile app
 
 ---
 
 ## Changelog
 
-### 2026-03-19 (Current Session - Major Update)
-- ✅ Added Signal History page with charts and timeline
-- ✅ Added Watchlist feature with per-coin alerts
-- ✅ Implemented Email Alerts system for strong signals
-- ✅ Set Dark mode as default theme
-- ✅ Updated sidebar navigation with new pages
-- ✅ All 14 backend tests passing (100%)
-- ✅ Google OAuth working
-- ✅ Scientific AI algorithm verified
+### 2026-03-19 (Current Session - PRO Features)
+- ✅ Added Signal Accuracy Tracker (1h/4h/24h verification)
+- ✅ Added Daily Market Open Emails (London 08:00 UTC, NYSE 14:30 UTC)
+- ✅ Created AccuracyTracker component with visual gauges
+- ✅ Added scheduler jobs for email and accuracy tracking
+- ✅ Fixed timezone bug in subscription endpoint
+- ✅ All 15 backend tests passing (100%)
 
-### Previous Sessions
-- Google OAuth authentication
-- JWT authentication
-- Stripe integration
-- Email verification flow
-- Signal detection system
-- Dashboard UI
-- Super Admin page
+### Previous
+- Signal History page
+- Watchlist feature
+- Email Alerts system
+- Dark mode default
+- Google OAuth
+- Scientific AI algorithm
