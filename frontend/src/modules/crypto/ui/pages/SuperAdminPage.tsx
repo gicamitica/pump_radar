@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Shield, Trash2, Gift, RefreshCw, Search, Calendar, Crown, User, Mail, Clock } from 'lucide-react';
+import { Shield, Trash2, RefreshCw, Search, Calendar, Crown, Lock, AlertTriangle } from 'lucide-react';
 
 const getToken = () => {
   const raw = localStorage.getItem('pumpradar_auth_token') || sessionStorage.getItem('pumpradar_auth_token');
@@ -25,6 +25,44 @@ export default function SuperAdminPage() {
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  // Check if user is admin
+  useEffect(() => {
+    const checkAuth = async () => {
+      const token = getToken();
+      if (!token) {
+        setIsAuthorized(false);
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        const res = await axios.get('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.data.success) {
+          const user = res.data.data.user;
+          setCurrentUser(user);
+          if (user.roles?.includes('admin')) {
+            setIsAuthorized(true);
+            fetchUsers();
+          } else {
+            setIsAuthorized(false);
+            setLoading(false);
+          }
+        } else {
+          setIsAuthorized(false);
+          setLoading(false);
+        }
+      } catch {
+        setIsAuthorized(false);
+        setLoading(false);
+      }
+    };
+    checkAuth();
+  }, []);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -40,8 +78,6 @@ export default function SuperAdminPage() {
     }
     setLoading(false);
   };
-
-  useEffect(() => { fetchUsers(); }, []);
 
   const giveSubscription = async (userId: string, duration: 'month' | 'year') => {
     if (!confirm(`Give FREE ${duration === 'month' ? '1 Month' : '1 Year'} subscription to this user?`)) return;
@@ -62,16 +98,19 @@ export default function SuperAdminPage() {
   };
 
   const deleteUser = async (userId: string, email: string) => {
-    if (!confirm(`DELETE user ${email}? This cannot be undone!`)) return;
+    if (!confirm(`DELETE user ${email}?\n\nThis action cannot be undone!`)) return;
     setActionLoading(userId);
     try {
-      await axios.delete(`/api/admin/users/${userId}`, {
+      const response = await axios.delete(`/api/admin/users/${userId}`, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
-      setMessage({ type: 'success', text: `User ${email} deleted` });
-      fetchUsers();
+      if (response.data.success) {
+        setMessage({ type: 'success', text: `User ${email} deleted successfully` });
+        // Remove from local state immediately
+        setUsers(prev => prev.filter(u => u.id !== userId));
+      }
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.response?.data?.detail || 'Failed to delete' });
+      setMessage({ type: 'error', text: err.response?.data?.detail || 'Failed to delete user' });
     }
     setActionLoading(null);
   };
@@ -96,6 +135,41 @@ export default function SuperAdminPage() {
     return <span className="px-2 py-1 text-xs font-bold rounded bg-gray-500 text-white">FREE</span>;
   };
 
+  // Not authorized - show access denied
+  if (isAuthorized === false) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">
+        <div className="text-center max-w-md p-8">
+          <div className="w-20 h-20 bg-red-600/20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Lock className="w-10 h-10 text-red-500" />
+          </div>
+          <h1 className="text-2xl font-bold mb-2">Access Denied</h1>
+          <p className="text-slate-400 mb-6">
+            This page requires administrator privileges. Please log in with an admin account.
+          </p>
+          <a 
+            href="/auth/login" 
+            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition"
+          >
+            Go to Login
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // Still checking auth
+  if (isAuthorized === null) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-500" />
+          <p className="text-slate-400">Verifying admin access...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 text-white p-6">
       <div className="max-w-7xl mx-auto">
@@ -107,7 +181,7 @@ export default function SuperAdminPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold">Super Admin Panel</h1>
-              <p className="text-slate-400 text-sm">Manage all PumpRadar users</p>
+              <p className="text-slate-400 text-sm">Logged in as: {currentUser?.email}</p>
             </div>
           </div>
           <button
@@ -121,9 +195,9 @@ export default function SuperAdminPage() {
 
         {/* Message */}
         {message && (
-          <div className={`mb-4 p-4 rounded-lg ${message.type === 'success' ? 'bg-emerald-900/50 border border-emerald-500' : 'bg-red-900/50 border border-red-500'}`}>
-            {message.text}
-            <button onClick={() => setMessage(null)} className="ml-4 text-sm underline">Dismiss</button>
+          <div className={`mb-4 p-4 rounded-lg flex items-center justify-between ${message.type === 'success' ? 'bg-emerald-900/50 border border-emerald-500' : 'bg-red-900/50 border border-red-500'}`}>
+            <span>{message.text}</span>
+            <button onClick={() => setMessage(null)} className="text-sm underline hover:no-underline">Dismiss</button>
           </div>
         )}
 
@@ -197,7 +271,12 @@ export default function SuperAdminPage() {
                           {user.name?.[0]?.toUpperCase() || '?'}
                         </div>
                         <div>
-                          <div className="font-medium">{user.name || 'No name'}</div>
+                          <div className="font-medium flex items-center gap-2">
+                            {user.name || 'No name'}
+                            {user.roles?.includes('admin') && (
+                              <span className="text-xs bg-red-600 px-1.5 py-0.5 rounded">ADMIN</span>
+                            )}
+                          </div>
                           <div className="text-sm text-slate-400">{user.email}</div>
                         </div>
                       </div>
@@ -240,9 +319,9 @@ export default function SuperAdminPage() {
                         </button>
                         <button
                           onClick={() => deleteUser(user.id, user.email)}
-                          disabled={actionLoading === user.id}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded text-xs font-medium transition disabled:opacity-50"
-                          title="Delete User"
+                          disabled={actionLoading === user.id || user.email === currentUser?.email}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded text-xs font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={user.email === currentUser?.email ? "Cannot delete yourself" : "Delete User"}
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -256,7 +335,8 @@ export default function SuperAdminPage() {
         </div>
 
         <div className="mt-4 text-center text-slate-500 text-sm">
-          This page is hidden from navigation. Access only via direct URL.
+          <AlertTriangle className="w-4 h-4 inline mr-1" />
+          This page is hidden and requires admin authentication.
         </div>
       </div>
     </div>
