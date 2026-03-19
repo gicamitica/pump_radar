@@ -78,7 +78,9 @@ PumpRadar este un dashboard AI pentru semnale crypto Pump & Dump, construit pe t
 - [x] Subscription page at /subscription with plan cards
 - [x] Subscription success page
 
-### Branding
+- [x] Landing page publică la `/` cu hero, features, pricing preview, CTAs
+- [x] Redirect `/` → `/dashboard` pentru utilizatori autentificați deja
+- [x] Redirect după register/login → `/dashboard` (nu `/`)
 - [x] Page title: "PumpRadar - AI Crypto Signals"
 - [x] Sidebar brand: "PumpRadar"
 - [x] Navigation i18n updated

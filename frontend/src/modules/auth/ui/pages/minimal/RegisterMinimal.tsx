@@ -13,7 +13,7 @@ const RegisterMinimal: React.FC = () => {
       header={<FormHeader title="Create your account" />}
       footer={<span>Already have an account? <Link className="text-blue-600" to={link.to}>Sign in</Link></span>}
     >
-      <RegisterForm onSuccess={() => nav('/')} />
+      <RegisterForm onSuccess={() => nav('/dashboard')} />
     </LayoutMinimal>
   );
 };

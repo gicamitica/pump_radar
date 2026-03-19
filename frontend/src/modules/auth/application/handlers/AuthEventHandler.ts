@@ -79,7 +79,7 @@ export class AuthEventHandler {
 
         // Navigate to dashboard after successful login
         this.logger.info('Navigating to dashboard after login');
-        this.navigationService.navigateTo('/');
+        this.navigationService.navigateTo('/dashboard');
 
         // TODO: Track analytics
         // analytics.track('Login Success', { userId: payload.user.id });

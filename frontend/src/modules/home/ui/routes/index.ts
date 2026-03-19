@@ -2,17 +2,17 @@ import type { ModuleRoute } from '@/core/router/types';
 import { HOME_PATHS } from './paths';
 import { lazy } from 'react';
 
+const LandingPage = lazy(() => import('../pages/LandingPage'));
 const GuidedWorkspaceSetupPage = lazy(() => import('../pages/GuidedWorkspaceSetupPage'));
 const ActionActivityHubPage = lazy(() => import('../pages/ActionActivityHubPage'));
-const RootRedirectPage = lazy(() => import('../pages/RootRedirectPage'));
 
 export const HOME_ROUTES: ModuleRoute[] = [
   {
     path: HOME_PATHS.HOME,
     module: 'home',
-    layout: 'app',
-    title: 'Home',
-    component: RootRedirectPage,
+    layout: 'none',   // Public - no auth, no sidebar
+    title: 'PumpRadar - AI Crypto Signals',
+    component: LandingPage,
   },
   {
     path: HOME_PATHS.GUIDED_SETUP,
