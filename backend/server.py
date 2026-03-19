@@ -148,7 +148,7 @@ async def send_verification_email(email: str, name: str, token: str):
         await asyncio.to_thread(resend.Emails.send, {
             "from": SENDER_EMAIL,
             "to": [email],
-            "subject": "Verifică emailul tău - PumpRadar",
+            "subject": "Verify your email - PumpRadar",
             "html": html,
         })
     except Exception as e:
@@ -169,7 +169,7 @@ async def send_reset_email(email: str, token: str):
         await asyncio.to_thread(resend.Emails.send, {
             "from": SENDER_EMAIL,
             "to": [email],
-            "subject": "Resetare parolă - PumpRadar",
+            "subject": "Password Reset - PumpRadar",
             "html": html,
         })
     except Exception as e:
@@ -249,6 +249,10 @@ async def login(dto: LoginDTO):
     if not user or not verify_password(dto.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail=api_err("Incorrect email or password", "INVALID_CREDENTIALS"))
     
+    # Check if email is verified (skip for Google OAuth users who don't have a password)
+    if user.get("password_hash") and not user.get("email_verified", False):
+        raise HTTPException(status_code=403, detail=api_err("Please verify your email first. Check your inbox for the verification link.", "EMAIL_NOT_VERIFIED"))
+    
     expire = timedelta(days=30) if dto.remember else timedelta(minutes=JWT_EXPIRE_MINUTES)
     access_token = create_token(str(user["_id"]), user["email"], expire)
     refresh_token = create_token(str(user["_id"]), user["email"], timedelta(days=30))
@@ -327,6 +331,151 @@ async def refresh_token(request: Request):
         return api_ok({"accessToken": new_access, "refreshToken": new_refresh})
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+# ─────────────────────────────────────────────
+# GOOGLE OAUTH (Emergent Auth)
+# ─────────────────────────────────────────────
+@app.post("/api/auth/google/session")
+async def google_auth_session(request: Request):
+    """Exchange Emergent Auth session_id for user session"""
+    body = await request.json()
+    session_id = body.get("session_id")
+    
+    if not session_id:
+        raise HTTPException(status_code=400, detail=api_err("session_id required", "MISSING_SESSION_ID"))
+    
+    # Call Emergent Auth to get user data
+    try:
+        response = requests.get(
+            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+            headers={"X-Session-ID": session_id},
+            timeout=10
+        )
+        if response.status_code != 200:
+            raise HTTPException(status_code=401, detail=api_err("Invalid session", "INVALID_SESSION"))
+        
+        oauth_data = response.json()
+        email = oauth_data.get("email", "").lower()
+        name = oauth_data.get("name", "")
+        picture = oauth_data.get("picture", "")
+        google_session_token = oauth_data.get("session_token", "")
+        
+        if not email:
+            raise HTTPException(status_code=400, detail=api_err("Email not provided by Google", "NO_EMAIL"))
+        
+        # Find or create user
+        existing_user = await db.users.find_one({"email": email})
+        
+        if existing_user:
+            # Update existing user with Google info
+            await db.users.update_one(
+                {"_id": existing_user["_id"]},
+                {"$set": {
+                    "avatar": picture or existing_user.get("avatar"),
+                    "email_verified": True,  # Google emails are verified
+                    "google_linked": True,
+                    "last_login": datetime.now(timezone.utc),
+                }}
+            )
+            user = await db.users.find_one({"_id": existing_user["_id"]})
+        else:
+            # Create new user with 24h trial
+            trial_expiry = datetime.now(timezone.utc) + timedelta(hours=24)
+            user_doc = {
+                "email": email,
+                "name": name,
+                "avatar": picture,
+                "roles": ["viewer"],
+                "email_verified": True,  # Google emails are verified
+                "google_linked": True,
+                "subscription": "trial",
+                "subscription_expiry": trial_expiry,
+                "created_at": datetime.now(timezone.utc),
+                "last_login": datetime.now(timezone.utc),
+            }
+            result = await db.users.insert_one(user_doc)
+            user_doc["_id"] = result.inserted_id
+            user = user_doc
+        
+        # Store Google session token for logout
+        await db.google_sessions.update_one(
+            {"user_id": str(user["_id"])},
+            {"$set": {
+                "user_id": str(user["_id"]),
+                "session_token": google_session_token,
+                "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+                "created_at": datetime.now(timezone.utc),
+            }},
+            upsert=True
+        )
+        
+        # Create our JWT token
+        access_token = create_token(str(user["_id"]), user["email"])
+        refresh_token = create_token(str(user["_id"]), user["email"], timedelta(days=30))
+        
+        return api_ok({
+            "user": doc_to_user(user),
+            "accessToken": access_token,
+            "refreshToken": refresh_token,
+        })
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Emergent Auth error: {e}")
+        raise HTTPException(status_code=500, detail=api_err("Authentication service unavailable", "AUTH_SERVICE_ERROR"))
+
+@app.post("/api/auth/resend-verification")
+async def resend_verification(request: Request, user=Depends(get_current_user)):
+    """Resend verification email"""
+    if user.get("email_verified"):
+        return api_ok({"message": "Email already verified"})
+    
+    # Generate new verification token
+    verify_token = secrets.token_urlsafe(32)
+    verify_expiry = datetime.now(timezone.utc) + timedelta(hours=24)
+    
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"verify_token": verify_token, "verify_token_expiry": verify_expiry}}
+    )
+    
+    # Send email
+    asyncio.create_task(send_verification_email(user["email"], user.get("name", ""), verify_token))
+    
+    return api_ok({"message": "Verification email sent! Please check your inbox."})
+
+# ─────────────────────────────────────────────
+# SUBSCRIPTION CHECK MIDDLEWARE
+# ─────────────────────────────────────────────
+async def check_subscription(user: dict) -> dict:
+    """Check if user has active subscription. Returns subscription status."""
+    subscription = user.get("subscription", "free")
+    expiry = user.get("subscription_expiry")
+    
+    if subscription == "free":
+        return {"active": False, "reason": "No active subscription"}
+    
+    if expiry:
+        # Handle both datetime and string formats
+        if isinstance(expiry, str):
+            expiry = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        
+        if expiry < datetime.now(timezone.utc):
+            return {"active": False, "reason": "Subscription expired", "expired_at": expiry.isoformat()}
+    
+    return {"active": True, "subscription": subscription, "expires_at": expiry.isoformat() if expiry else None}
+
+async def require_active_subscription(user=Depends(get_current_user)) -> dict:
+    """Dependency that requires an active subscription"""
+    status = await check_subscription(user)
+    if not status["active"]:
+        raise HTTPException(
+            status_code=402,  # Payment Required
+            detail=api_err(f"Subscription required: {status.get('reason', 'No active subscription')}", "SUBSCRIPTION_REQUIRED")
+        )
+    return user
+
 
 # ─────────────────────────────────────────────
 # CRYPTO DATA FETCHING
@@ -504,10 +653,32 @@ async def fetch_and_store_signals():
             if sym:
                 lc_lookup[sym] = coin
         
-        # Merge data
+        # Merge data - FILTER OUT INVALID COINS
         candidates = []
         for coin in cg_data:
             sym = coin.get("symbol", "").upper()
+            
+            # STRICT VALIDATION - Skip coins with invalid/zero data
+            price = coin.get("current_price") or 0
+            vol = coin.get("total_volume") or 0
+            mcap = coin.get("market_cap") or 0
+            
+            # Skip if price is 0 or extremely low (likely dead/scam coins)
+            if price <= 0 or price < 0.0000001:
+                continue
+            
+            # Skip if no volume (dead coins)
+            if vol <= 0:
+                continue
+                
+            # Skip if no market cap (not a real trading coin)
+            if mcap <= 0:
+                continue
+            
+            # Skip if market cap is suspiciously low (< $100k - likely scam/meme)
+            if mcap < 100000:
+                continue
+            
             lc = lc_lookup.get(sym, {})
             
             # Extract price changes
@@ -515,15 +686,13 @@ async def fetch_and_store_signals():
             pc24 = coin.get("price_change_percentage_24h") or 0
             pc7d = coin.get("price_change_percentage_7d_in_currency") or coin.get("price_change_percentage_7d") or 0
             
-            vol = coin.get("total_volume") or 0
-            mcap = coin.get("market_cap") or 0
             vol_mcap_ratio = (vol / mcap * 100) if mcap > 0 else 0
             
             candidates.append({
                 "id": coin.get("id", ""),
                 "symbol": sym,
                 "name": coin.get("name", ""),
-                "price": coin.get("current_price"),
+                "price": price,
                 "market_cap": mcap,
                 "volume_24h": vol,
                 "vol_mcap_ratio": round(vol_mcap_ratio, 2),
@@ -538,6 +707,8 @@ async def fetch_and_store_signals():
                 "galaxy_score": lc.get("galaxy_score") or lc.get("gs") or 0,
             })
         
+        logger.info(f"Filtered to {len(candidates)} valid coins from {len(cg_data)} total")
+        
         # AI Analysis with all available data
         ai_result = await analyze_signals_with_ai(candidates, fear_greed, trending_symbols)
         
@@ -547,12 +718,22 @@ async def fetch_and_store_signals():
         def enrich_signal(sig: dict, signal_type: str) -> dict:
             sym = sig.get("symbol", "").upper()
             market = cg_lookup.get(sym, {})
+            
+            # Skip if no market data found (AI hallucinated a coin)
+            if not market:
+                return None
+            
+            # Skip if price is 0 or invalid
+            price = market.get("price") or 0
+            if price <= 0:
+                return None
+                
             return {
                 **sig,
                 "signal_type": signal_type,
                 "symbol": sym,
                 "name": market.get("name", sym),
-                "price": market.get("price"),
+                "price": price,
                 "price_change_1h": market.get("price_change_1h"),
                 "price_change_24h": market.get("price_change_24h"),
                 "volume_24h": market.get("volume_24h"),
@@ -564,8 +745,9 @@ async def fetch_and_store_signals():
                 "timestamp": datetime.now(timezone.utc),
             }
         
-        pump_signals = [enrich_signal(s, "pump") for s in ai_result.get("pump_signals", [])]
-        dump_signals = [enrich_signal(s, "dump") for s in ai_result.get("dump_signals", [])]
+        # Filter out None (invalid signals)
+        pump_signals = [s for s in [enrich_signal(s, "pump") for s in ai_result.get("pump_signals", [])] if s is not None]
+        dump_signals = [s for s in [enrich_signal(s, "dump") for s in ai_result.get("dump_signals", [])] if s is not None]
         
         if pump_signals or dump_signals:
             snapshot = {
@@ -1111,6 +1293,16 @@ async def admin_update_user(user_id: str, body: dict, admin=Depends(require_admi
 async def make_admin(user_id: str, admin=Depends(require_admin)):
     await db.users.update_one({"_id": ObjectId(user_id)}, {"$addToSet": {"roles": "admin"}})
     return api_ok({"message": "User promoted to admin"})
+
+@app.post("/api/admin/run-signal-job")
+async def run_signal_job(admin=Depends(require_admin)):
+    """Force run the signal analysis job (admin only)"""
+    try:
+        await fetch_and_store_signals()
+        return api_ok({"message": "Signal job completed successfully"})
+    except Exception as e:
+        logger.error(f"Manual signal job failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ─────────────────────────────────────────────
 # HOME MODULE STUBS (required by Katalyst template)

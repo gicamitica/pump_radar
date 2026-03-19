@@ -12,9 +12,9 @@ import { FieldPassword } from '@/components/forms/composites/field';
 import ActionButton from '@/components/forms/buttons/ActionButton';
 
 const schema = z.object({
-  email: z.string().email('Email invalid'),
-  name: z.string().min(2, 'Minim 2 caractere'),
-  password: z.string().min(8, 'Minim 8 caractere'),
+  email: z.string().email('Invalid email'),
+  name: z.string().min(2, 'Minimum 2 characters'),
+  password: z.string().min(8, 'Minimum 8 characters'),
 });
 
 type Values = z.infer<typeof schema>;
@@ -37,7 +37,7 @@ const RegisterForm: React.FC<{ onSuccess?: () => void }> = ({ onSuccess }) => {
       if (onSuccess) onSuccess();
     } catch (err: unknown) {
       logger.error('Registration failed', err);
-      const msg = err instanceof Error ? err.message : 'Înregistrare eșuată. Încearcă din nou.';
+      const msg = err instanceof Error ? err.message : 'Registration failed. Please try again.';
       setError(msg);
     }
   };
@@ -51,7 +51,7 @@ const RegisterForm: React.FC<{ onSuccess?: () => void }> = ({ onSuccess }) => {
       )}
       <div>
         <FieldEmail
-          placeholder="adresa@email.com"
+          placeholder="email@example.com"
           id="email"
           {...register('email')}
           status={errors.email ? 'error' : undefined}
@@ -59,10 +59,10 @@ const RegisterForm: React.FC<{ onSuccess?: () => void }> = ({ onSuccess }) => {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1">Nume complet</label>
+        <label className="block text-sm font-medium mb-1">Full name</label>
         <input
           className="w-full rounded-lg border border-input bg-background px-3 h-10 text-sm"
-          placeholder="Numele tău"
+          placeholder="Your name"
           data-testid="register-name-input"
           {...register('name')}
         />
@@ -71,14 +71,14 @@ const RegisterForm: React.FC<{ onSuccess?: () => void }> = ({ onSuccess }) => {
       <div>
         <FieldPassword
           autoComplete="new-password"
-          placeholder="Minim 8 caractere"
+          placeholder="Minimum 8 characters"
           {...register('password')}
           status={errors.password ? 'error' : undefined}
           statusMessage={errors.password?.message}
         />
       </div>
       <ActionButton type="submit" disabled={isSubmitting} data-testid="register-submit-btn">
-        {isSubmitting ? 'Se creează contul…' : 'Creează cont'}
+        {isSubmitting ? 'Creating account...' : 'Create account'}
       </ActionButton>
     </form>
   );

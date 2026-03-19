@@ -20,13 +20,20 @@ const VerifyHero = lazy(() => import('@/modules/auth/ui/pages/hero/VerifyHero'))
 const MfaSetupHero = lazy(() => import('@/modules/auth/ui/pages/hero/MfaSetupHero'));
 const MfaVerifyHero = lazy(() => import('@/modules/auth/ui/pages/hero/MfaVerifyHero'));
 
+// Custom pages
+const AuthCallback = lazy(() => import('@/modules/auth/ui/pages/AuthCallback'));
+const VerifyEmailPage = lazy(() => import('@/modules/auth/ui/pages/VerifyEmailPage'));
+
 export const AUTH_ROUTES: ModuleRoute[] = [
+  // OAuth Callback (must be before other routes)
+  { path: '/auth/callback', module: 'auth', layout: 'auth', title: 'Authenticating...', component: AuthCallback },
+  
   // Minimal
   { path: AUTH_PATHS.LOGIN, module: 'auth', layout: 'auth', title: 'Login', component: LoginMinimal },
   { path: AUTH_PATHS.REGISTER, module: 'auth', layout: 'auth', title: 'Register', component: RegisterMinimal },
   { path: AUTH_PATHS.FORGOT_PASSWORD, module: 'auth', layout: 'auth', title: 'Forgot Password', component: ForgotMinimal },
   { path: AUTH_PATHS.RESET_PASSWORD, module: 'auth', layout: 'auth', title: 'Reset Password', component: ResetMinimal },
-  { path: AUTH_PATHS.VERIFY_EMAIL, module: 'auth', layout: 'auth', title: 'Verify Email', component: VerifyMinimal },
+  { path: AUTH_PATHS.VERIFY_EMAIL, module: 'auth', layout: 'auth', title: 'Verify Email', component: VerifyEmailPage },
   { path: AUTH_PATHS.MFA_SETUP, module: 'auth', layout: 'auth', title: 'MFA Setup', component: MfaSetupMinimal },
   { path: AUTH_PATHS.MFA_VERIFY, module: 'auth', layout: 'auth', title: 'MFA Verify', component: MfaVerifyMinimal },
   
