@@ -249,10 +249,7 @@ async def login(dto: LoginDTO):
     if not user or not verify_password(dto.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail=api_err("Incorrect email or password", "INVALID_CREDENTIALS"))
     
-    # Check if email is verified (skip for Google OAuth users who don't have a password)
-    if user.get("password_hash") and not user.get("email_verified", False):
-        raise HTTPException(status_code=403, detail=api_err("Please verify your email first. Check your inbox for the verification link.", "EMAIL_NOT_VERIFIED"))
-    
+    # Email verification disabled - allow all logins
     expire = timedelta(days=30) if dto.remember else timedelta(minutes=JWT_EXPIRE_MINUTES)
     access_token = create_token(str(user["_id"]), user["email"], expire)
     refresh_token = create_token(str(user["_id"]), user["email"], timedelta(days=30))
