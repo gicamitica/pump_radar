@@ -4,7 +4,6 @@ import SimpleBar from 'simplebar-react';
 import { cn } from '@/shadcn/lib/utils';
 import type { NavGroup } from '@/app/config/navigation';
 import { GroupRailItem } from './GroupRailItem';
-import logo from '@/assets/logo.png';
 import SidebarThemeToggler from '@/shared/ui/layouts/components/SidebarThemeToggler';
 
 interface GroupRailProps {
@@ -34,7 +33,7 @@ export const GroupRail: React.FC<GroupRailProps> = ({
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div className="flex items-center justify-center h-16">
-        <img src={logo} alt={t('brand')} className="size-8 rounded-full" />
+        <img src="/logo-pumpradar.png" alt="PumpRadar" className="size-9 rounded-lg object-contain" />
       </div>
 
       {/* Group icons */}

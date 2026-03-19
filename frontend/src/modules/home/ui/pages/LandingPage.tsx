@@ -2,6 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, TrendingDown, Brain, Zap, Clock, Shield, ChevronRight, Check, Star, BarChart3, Activity, Menu, X } from 'lucide-react';
 
+// PumpRadar Logo
+const PumpRadarLogo = ({ size = 32 }: { size?: number }) => (
+  <img 
+    src="/logo-pumpradar.png" 
+    alt="PumpRadar" 
+    className="rounded-lg"
+    style={{ width: size, height: size, objectFit: 'contain' }}
+  />
+);
+
 const FEATURES = [
   { icon: <Brain className="h-6 w-6" />, title: 'AI Gemini Analysis', desc: 'AI-filtered signals from 100+ cryptocurrencies in real-time', color: 'text-purple-400', bg: 'bg-purple-500/10' },
   { icon: <Clock className="h-6 w-6" />, title: 'Hourly Updates', desc: 'Fresh data every hour from CoinGecko + Fear & Greed Index', color: 'text-blue-400', bg: 'bg-blue-500/10' },
@@ -78,9 +88,7 @@ export default function LandingPage() {
       <nav className={`fixed top-0 w-full z-50 transition-all duration-300 ${scrolled ? 'bg-[#0a0b0f]/95 backdrop-blur-md border-b border-white/5 shadow-xl' : 'bg-transparent'}`}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-400 to-blue-500 flex items-center justify-center">
-              <TrendingUp className="h-4 w-4 text-white" />
-            </div>
+            <PumpRadarLogo size={36} />
             <span className="font-bold text-lg tracking-tight">PumpRadar</span>
           </div>
 
@@ -304,8 +312,8 @@ export default function LandingPage() {
       {/* CTA FINAL */}
       <section className="py-20 px-4">
         <div className="max-w-2xl mx-auto text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-500/10 rounded-2xl mb-6">
-            <TrendingUp className="h-8 w-8 text-emerald-400" />
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-white/5 rounded-2xl mb-6">
+            <PumpRadarLogo size={64} />
           </div>
           <h2 className="text-3xl sm:text-4xl font-extrabold mb-4">
             Start trading smarter
@@ -328,9 +336,7 @@ export default function LandingPage() {
       <footer className="border-t border-white/5 py-8 px-4">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="h-6 w-6 rounded-lg bg-gradient-to-br from-emerald-400 to-blue-500 flex items-center justify-center">
-              <TrendingUp className="h-3 w-3 text-white" />
-            </div>
+            <PumpRadarLogo size={28} />
             <span className="font-bold text-sm">PumpRadar</span>
           </div>
           <p className="text-xs text-slate-500">Signals are not financial advice. Invest responsibly.</p>

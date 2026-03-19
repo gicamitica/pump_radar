@@ -5,6 +5,14 @@ import FormHeader from '../../../../../shared/ui/components/forms/layout/FormHea
 import { nextLink } from '../../components/navLinks';
 import { Link, useNavigate } from 'react-router-dom';
 
+// PumpRadar Logo Component
+const PumpRadarLogo = () => (
+  <div className="flex items-center justify-center gap-3 mb-6">
+    <img src="/logo-pumpradar.png" alt="PumpRadar" className="w-12 h-12 rounded-xl" />
+    <span className="text-2xl font-bold">PumpRadar</span>
+  </div>
+);
+
 /**
  * Google OAuth Register Button
  * REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
@@ -45,7 +53,12 @@ const RegisterMinimal: React.FC = () => {
 
   return (
     <LayoutMinimal
-      header={<FormHeader title="Create your account" subtitle="Start your free 24-hour trial" />}
+      header={
+        <>
+          <PumpRadarLogo />
+          <FormHeader title="Create your account" subtitle="Start your free 24-hour trial" />
+        </>
+      }
       footer={<span>Already have an account? <Link className="text-blue-600" to={link.to}>Sign in</Link></span>}
     >
       {/* Google Register Button */}

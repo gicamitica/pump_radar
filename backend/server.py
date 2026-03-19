@@ -46,6 +46,7 @@ COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
 EMERGENT_LLM_KEY = os.environ["EMERGENT_LLM_KEY"]
 STRIPE_API_KEY = os.environ["STRIPE_API_KEY"]
 APP_URL = os.environ.get("APP_URL", "http://localhost:3000")
+LOGO_URL = f"{APP_URL}/logo-pumpradar.png"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -137,14 +138,21 @@ async def get_optional_user(creds: HTTPAuthorizationCredentials = Depends(bearer
 async def send_verification_email(email: str, name: str, token: str):
     verify_url = f"{APP_URL}/auth/verify-email?token={token}"
     html = f"""
-    <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
-      <h2 style="color:#6366f1">Welcome to PumpRadar!</h2>
-      <p>Hi {name},</p>
-      <p>Please verify your email address to activate your account:</p>
-      <a href="{verify_url}" style="background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin:16px 0">
-        Verify Email
-      </a>
-      <p style="color:#666;font-size:14px">This link expires in 24 hours.</p>
+    <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#0f172a;border-radius:12px">
+      <div style="text-align:center;margin-bottom:24px">
+        <img src="{LOGO_URL}" alt="PumpRadar" style="width:64px;height:64px;border-radius:12px" />
+        <h2 style="color:#fff;margin:16px 0 0 0">Welcome to PumpRadar!</h2>
+      </div>
+      <div style="background:#1e293b;padding:20px;border-radius:8px;color:#fff">
+        <p style="margin:0 0 16px 0">Hi {name},</p>
+        <p style="margin:0 0 20px 0;color:#94a3b8">Please verify your email address to activate your account and start receiving AI-powered crypto signals:</p>
+        <div style="text-align:center">
+          <a href="{verify_url}" style="background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold">
+            Verify Email Address
+          </a>
+        </div>
+        <p style="color:#64748b;font-size:12px;margin:20px 0 0 0;text-align:center">This link expires in 24 hours.</p>
+      </div>
     </div>"""
     try:
         await asyncio.to_thread(resend.Emails.send, {
@@ -159,13 +167,20 @@ async def send_verification_email(email: str, name: str, token: str):
 async def send_reset_email(email: str, token: str):
     reset_url = f"{APP_URL}/auth/reset-password?token={token}"
     html = f"""
-    <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
-      <h2 style="color:#6366f1">Password Reset - PumpRadar</h2>
-      <p>You requested a password reset. Click the link below:</p>
-      <a href="{reset_url}" style="background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin:16px 0">
-        Reset Password
-      </a>
-      <p style="color:#666;font-size:14px">This link expires in 1 hour.</p>
+    <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#0f172a;border-radius:12px">
+      <div style="text-align:center;margin-bottom:24px">
+        <img src="{LOGO_URL}" alt="PumpRadar" style="width:64px;height:64px;border-radius:12px" />
+        <h2 style="color:#fff;margin:16px 0 0 0">Password Reset</h2>
+      </div>
+      <div style="background:#1e293b;padding:20px;border-radius:8px;color:#fff">
+        <p style="margin:0 0 16px 0;color:#94a3b8">You requested a password reset. Click the button below:</p>
+        <div style="text-align:center">
+          <a href="{reset_url}" style="background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold">
+            Reset Password
+          </a>
+        </div>
+        <p style="color:#64748b;font-size:12px;margin:20px 0 0 0;text-align:center">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
+      </div>
     </div>"""
     try:
         await asyncio.to_thread(resend.Emails.send, {
@@ -1069,7 +1084,10 @@ async def send_signal_alert_email(email: str, name: str, signal: dict, signal_ty
     """Send email alert for strong signals"""
     html = f"""
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#0f172a;color:#fff;border-radius:12px">
-      <h2 style="color:{'#10b981' if signal_type == 'pump' else '#ef4444'};margin-bottom:16px">
+      <div style="text-align:center;margin-bottom:20px">
+        <img src="{LOGO_URL}" alt="PumpRadar" style="width:48px;height:48px;border-radius:10px" />
+      </div>
+      <h2 style="color:{'#10b981' if signal_type == 'pump' else '#ef4444'};margin-bottom:16px;text-align:center">
         {'🚀 PUMP' if signal_type == 'pump' else '📉 DUMP'} Alert: {signal.get('symbol')}
       </h2>
       <p>Hi {name},</p>
@@ -1408,6 +1426,7 @@ async def send_market_open_email(market: str):
             html = f"""
             <div style="font-family:sans-serif;max-width:650px;margin:0 auto;padding:24px;background:#0f172a;color:#fff;border-radius:12px">
               <div style="text-align:center;margin-bottom:24px">
+                <img src="{LOGO_URL}" alt="PumpRadar" style="width:56px;height:56px;border-radius:12px;margin-bottom:12px" />
                 <h1 style="color:#fff;margin:0">{market_emoji} {market_name} Opens</h1>
                 <p style="color:#94a3b8;margin:8px 0 0 0">Daily Signal Report for {name}</p>
               </div>

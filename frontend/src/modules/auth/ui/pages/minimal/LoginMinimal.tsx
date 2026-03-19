@@ -6,6 +6,14 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import LoginForm from '../../components/forms/LoginForm';
 
+// PumpRadar Logo Component
+const PumpRadarLogo = () => (
+  <div className="flex items-center justify-center gap-3 mb-6">
+    <img src="/logo-pumpradar.png" alt="PumpRadar" className="w-12 h-12 rounded-xl" />
+    <span className="text-2xl font-bold">PumpRadar</span>
+  </div>
+);
+
 /**
  * Google OAuth Login Button
  * REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
@@ -41,7 +49,12 @@ const LoginMinimal: React.FC = () => {
 
   return (
     <LayoutMinimal
-      header={<FormHeader title={t('title.login','Welcome back')} subtitle={t('subtitle.login','Please login to continue to your account.')} />}
+      header={
+        <>
+          <PumpRadarLogo />
+          <FormHeader title={t('title.login','Welcome back')} subtitle={t('subtitle.login','Please login to continue to your account.')} />
+        </>
+      }
       footer={<span>Don't have an account? <Link className="text-blue-600 dark:text-blue-500" to={link.to}>{t('createOne','Create one')}</Link></span>}
     >
       {/* Google Login Button */}
