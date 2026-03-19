@@ -41,7 +41,7 @@ const AvatarMenu: React.FC = () => {
     { type: 'item', key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, onClick: () => navigate('/dashboard') },
     { type: 'item', key: 'subscription', label: 'Subscription', icon: CreditCard, onClick: () => navigate('/pages/pricing') },
     { type: 'item', key: 'ai-chat', label: 'AI Assistant', icon: MessageCircle, onClick: () => navigate('/ai-chat') },
-    ...(isAdmin ? [{ type: 'item' as const, key: 'admin', label: 'Admin Panel', icon: Shield, onClick: () => navigate('/admin') }] : []),
+    ...(isAdmin ? [{ type: 'item' as const, key: 'admin', label: 'Super Admin', icon: Shield, onClick: () => navigate('/super-admin') }] : []),
     { type: 'separator', key: 'sep' },
     { type: 'item', key: 'logout', label: 'Sign Out', icon: LogOut, onClick: handleLogout, variant: 'danger' as const },
   ], [navigate, handleLogout, isAdmin]);
