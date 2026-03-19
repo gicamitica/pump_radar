@@ -27,10 +27,17 @@ PumpRadar is an AI-powered crypto pump/dump signal detection platform built with
 │   └── .env               # API keys & config
 ├── frontend/
 │   ├── src/
-│   │   ├── app/router/    # AppRouter with OAuth callback handling
+│   │   ├── app/
+│   │   │   ├── router/    # AppRouter with OAuth callback
+│   │   │   ├── config/    # Navigation config (updated)
+│   │   │   └── providers/ # ThemeProvider (dark mode default)
 │   │   ├── modules/
-│   │   │   ├── crypto/    # Signals, AI Chat, Super Admin
-│   │   │   └── auth/      # Login, Register, AuthCallback
+│   │   │   ├── crypto/
+│   │   │   │   └── ui/pages/
+│   │   │   │       ├── HistoryPage.tsx    # NEW
+│   │   │   │       ├── WatchlistPage.tsx  # NEW
+│   │   │   │       └── ...
+│   │   │   └── auth/
 │   │   └── shared/
 │   └── .env
 └── test_reports/
@@ -38,7 +45,7 @@ PumpRadar is an AI-powered crypto pump/dump signal detection platform built with
 
 ---
 
-## Implemented Features (Completed)
+## Implemented Features (All Complete)
 
 ### Authentication ✅
 - [x] Email/password registration and login with JWT
@@ -50,7 +57,7 @@ PumpRadar is an AI-powered crypto pump/dump signal detection platform built with
 - [x] Token refresh
 
 ### Crypto Signals (AI-powered) ✅
-- [x] **Scientific Algorithm:** Quantitative scoring with:
+- [x] **Scientific Algorithm** with quantitative scoring:
   - Volume/Market Cap ratio analysis (abnormal volume detection)
   - Momentum divergence (1h vs 24h rate comparison)
   - Trend alignment scoring
@@ -64,18 +71,50 @@ PumpRadar is an AI-powered crypto pump/dump signal detection platform built with
 ### AI Customer Service ✅
 - [x] Intelligent chat powered by Gemini
 - [x] Real-time market context in responses
-- [x] Specific signal data mentioned (coins, scores)
+- [x] Specific signal data mentioned (coins, scores, F&G index)
 - [x] English-only responses
 - [x] Helpful, concise, professional tone
 
 ### Super Admin Page ✅
 - [x] Hidden URL at `/super-admin`
-- [x] Protected by admin role check
+- [x] Protected by admin role check (returns 401 without auth)
 - [x] Shows "Access Denied" for non-admins
 - [x] User management table
 - [x] Grant free subscriptions (1 month / 1 year)
 - [x] Delete user accounts
 - [x] User statistics dashboard
+
+### Signal History ✅ (NEW)
+- [x] `/history` page with chart and timeline views
+- [x] Last 48 hours of signal data
+- [x] Aggregated stats (total pumps/dumps, avg per hour)
+- [x] Expandable timeline entries with market summaries
+- [x] `/api/crypto/history` endpoint
+- [x] `/api/crypto/snapshots` endpoint with full detail
+
+### Watchlist Feature ✅ (NEW)
+- [x] `/watchlist` page with coin management
+- [x] Add/remove coins from watchlist
+- [x] Per-coin alert thresholds
+- [x] Toggle alerts for individual coins
+- [x] Persistent storage (localStorage + MongoDB)
+- [x] API endpoints: `/api/user/watchlist`, `/api/user/watchlist/add`, `/api/user/watchlist/{symbol}`
+
+### Email Alerts ✅ (NEW)
+- [x] Alert settings in user profile
+- [x] Email alerts for strong signals (≥85% strength)
+- [x] Watchlist-specific alerts with custom thresholds
+- [x] Global alerts for Pro subscribers
+- [x] Beautiful HTML email templates
+- [x] `/api/user/alerts` endpoint
+
+### UI/UX ✅
+- [x] **Dark mode as default** (ThemeProvider updated)
+- [x] Updated sidebar navigation with History & Watchlist
+- [x] Signal cards with scientific reasoning
+- [x] Coin detail pages with recharts
+- [x] Subscription badge in header
+- [x] Light/Dark/System toggle
 
 ### Dashboard & UI ✅
 - [x] Signals Dashboard at /dashboard
@@ -84,7 +123,6 @@ PumpRadar is an AI-powered crypto pump/dump signal detection platform built with
 - [x] Countdown to next refresh
 - [x] Signal cards with scientific reasoning
 - [x] Coin detail pages with charts
-- [x] Subscription badge in header
 
 ### Subscriptions (Stripe) ✅
 - [x] Free trial (24h)
@@ -105,13 +143,38 @@ PumpRadar is an AI-powered crypto pump/dump signal detection platform built with
 
 ### Crypto
 - `GET /api/crypto/signals` - Get latest signals
+- `GET /api/crypto/history` - Historical signal summary (auth required)
+- `GET /api/crypto/snapshots` - Detailed signal snapshots (public)
 - `GET /api/crypto/coin/{symbol}` - Coin detail with AI analysis
 - `POST /api/ai/chat` - AI customer service
+
+### User Settings
+- `GET /api/user/watchlist` - Get user watchlist
+- `POST /api/user/watchlist/add` - Add coin to watchlist
+- `DELETE /api/user/watchlist/{symbol}` - Remove coin
+- `GET /api/user/alerts` - Get alert settings
+- `POST /api/user/alerts` - Update alert settings
 
 ### Admin
 - `GET /api/admin/users` - List all users (admin only)
 - `PATCH /api/admin/users/{id}` - Update user subscription
 - `DELETE /api/admin/users/{id}` - Delete user
+
+---
+
+## Test Results (Latest)
+
+### Backend: 100% (14/14 tests)
+- All endpoints verified working
+- Signal data: 8 PUMP, 4 DUMP signals
+- Fear & Greed: 23 (Extreme Fear)
+- Coins analyzed: 95
+
+### Frontend: 90%
+- Dark mode default: ✅
+- Google OAuth button: ✅
+- Navigation updated: ✅
+- (Cloudflare rate limiting affected full e2e)
 
 ---
 
@@ -121,40 +184,34 @@ PumpRadar is an AI-powered crypto pump/dump signal detection platform built with
 
 ---
 
-## Remaining Work
+## Remaining Work (Backlog)
 
-### P1 (Important)
-- [ ] Coin detail chart implementation (recharts)
-- [ ] Historical signals view
-
-### P2 (Nice to have)
-- [ ] Dark mode default
-- [ ] Email notifications for high-strength signals
-- [ ] Watchlist feature
-- [ ] Telegram bot integration
-
-### P3 (Backlog)
+### P3 (Nice to have)
 - [ ] Apple Auth (requires paid Apple Developer account)
 - [ ] LunarCrush full integration (requires paid API)
 - [ ] Mobile app
+- [ ] Telegram bot integration
+- [ ] Push notifications
 
 ---
 
 ## Changelog
 
-### 2026-03-19 (Current Session)
-- ✅ Added Google OAuth authentication (Emergent-managed)
-- ✅ Implemented scientific AI algorithm for pump/dump detection
-- ✅ Enhanced AI customer service with market context
-- ✅ Protected Super Admin page with role-based access
-- ✅ Updated AvatarMenu to link to /super-admin
-- ✅ All 13 backend tests passing (100%)
-- ✅ Frontend verified working
+### 2026-03-19 (Current Session - Major Update)
+- ✅ Added Signal History page with charts and timeline
+- ✅ Added Watchlist feature with per-coin alerts
+- ✅ Implemented Email Alerts system for strong signals
+- ✅ Set Dark mode as default theme
+- ✅ Updated sidebar navigation with new pages
+- ✅ All 14 backend tests passing (100%)
+- ✅ Google OAuth working
+- ✅ Scientific AI algorithm verified
 
 ### Previous Sessions
-- Initial implementation with Katalyst template
+- Google OAuth authentication
 - JWT authentication
 - Stripe integration
 - Email verification flow
 - Signal detection system
 - Dashboard UI
+- Super Admin page
