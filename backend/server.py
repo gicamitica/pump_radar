@@ -10,6 +10,8 @@ import requests
 import hashlib
 import secrets
 import httpx
+import stripe
+import google.generativeai as genai
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Annotated
 
@@ -26,10 +28,6 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import resend
-from emergentintegrations.llm.chat import LlmChat, UserMessage
-from emergentintegrations.payments.stripe.checkout import (
-    StripeCheckout, CheckoutSessionRequest, CheckoutSessionResponse, CheckoutStatusResponse
-)
 
 # ─────────────────────────────────────────────
 # Config
@@ -43,10 +41,16 @@ RESEND_API_KEY = os.environ["RESEND_API_KEY"]
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 LUNARCRUSH_API_KEY = os.environ["LUNARCRUSH_API_KEY"]
 COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
-EMERGENT_LLM_KEY = os.environ["EMERGENT_LLM_KEY"]
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 STRIPE_API_KEY = os.environ["STRIPE_API_KEY"]
 APP_URL = os.environ.get("APP_URL", "http://localhost:3000")
 LOGO_URL = f"{APP_URL}/logo-pumpradar.png"
+
+# Configure Gemini
+genai.configure(api_key=GEMINI_API_KEY)
+
+# Configure Stripe
+stripe.api_key = STRIPE_API_KEY
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -367,26 +371,27 @@ async def resend_verification(request: Request, user=Depends(get_current_user)):
     return api_ok({"message": "Verification email sent! Please check your inbox."})
 
 # ─────────────────────────────────────────────
-# GOOGLE OAUTH (Emergent-managed)
+# GOOGLE OAUTH
 # ─────────────────────────────────────────────
-EMERGENT_AUTH_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+# Google OAuth session verification endpoint
+GOOGLE_AUTH_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 
 class GoogleAuthDTO(BaseModel):
     session_id: str
 
 @app.post("/api/auth/google")
 async def google_auth(dto: GoogleAuthDTO, response: Response):
-    """Exchange Emergent OAuth session_id for user session"""
+    """Exchange Google OAuth session_id for user session"""
     try:
-        # Call Emergent Auth to get user data
+        # Call Google Auth to get user data
         async with httpx.AsyncClient() as client:
             resp = await client.get(
-                EMERGENT_AUTH_URL,
+                GOOGLE_AUTH_URL,
                 headers={"X-Session-ID": dto.session_id},
                 timeout=10.0
             )
             if resp.status_code != 200:
-                logger.error(f"Emergent Auth error: {resp.status_code} - {resp.text}")
+                logger.error(f"Google Auth error: {resp.status_code} - {resp.text}")
                 raise HTTPException(status_code=401, detail=api_err("Google authentication failed", "GOOGLE_AUTH_FAILED"))
             
             google_data = resp.json()
@@ -663,14 +668,13 @@ async def analyze_signals_with_ai(candidates: List[dict], fear_greed: dict = Non
             reverse=True
         )[:10]
         
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"crypto_analysis_{uuid.uuid4()}",
-            system_message="""You are a quantitative crypto analyst. You analyze PRE-SCORED signals and provide scientific explanations.
+        chat = genai.GenerativeModel(
+            model_name="gemini-2.0-flash",
+            system_instruction="""You are a quantitative crypto analyst. You analyze PRE-SCORED signals and provide scientific explanations.
 You MUST respond ONLY in valid JSON format, with no text before or after the JSON.
 All text in the response MUST be in English.
 Your analysis must be SPECIFIC with exact numbers and technical reasoning - no vague statements."""
-        ).with_model("gemini", "gemini-2.5-flash")
+        )
         
         pump_data = "\n".join([
             f"{c['symbol']}: pump_score={c['pump_strength']}, price=${c['price']:.6f}, "
@@ -735,7 +739,7 @@ IMPORTANT:
 - Confidence levels: high (>75 score), medium (50-75), low (<50)
 - Risk levels based on volatility and market conditions"""
         
-        response = await chat.send_message(UserMessage(text=prompt))
+        response = await asyncio.to_thread(lambda: chat.generate_content(prompt).text)
         
         # Parse JSON response
         import json as json_lib
@@ -1536,16 +1540,24 @@ async def create_checkout(req: CheckoutRequest, request: Request, user=Depends(g
     success_url = f"{req.origin_url}/subscription/success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{req.origin_url}/pages/pricing"
     
-    stripe_checkout = StripeCheckout(
-        api_key=STRIPE_API_KEY,
-        webhook_url=f"{APP_URL}/api/webhook/stripe"
-    )
-    
-    checkout_req = CheckoutSessionRequest(
-        amount=plan["price"],
-        currency=plan["currency"],
+    # Create Stripe checkout session
+    session = stripe.checkout.Session.create(
+        payment_method_types=["card"],
+        line_items=[{
+            "price_data": {
+                "currency": plan["currency"],
+                "product_data": {
+                    "name": f"PumpRadar {req.plan.title()} Plan",
+                    "description": f"Access to PumpRadar signals for {plan['duration_days']} days",
+                },
+                "unit_amount": int(plan["price"] * 100),  # Stripe uses cents
+            },
+            "quantity": 1,
+        }],
+        mode="payment",
         success_url=success_url,
         cancel_url=cancel_url,
+        customer_email=user["email"],
         metadata={
             "user_id": str(user["_id"]),
             "user_email": user["email"],
@@ -1553,11 +1565,9 @@ async def create_checkout(req: CheckoutRequest, request: Request, user=Depends(g
         }
     )
     
-    session = await stripe_checkout.create_checkout_session(checkout_req)
-    
     # Store pending transaction
     await db.payment_transactions.insert_one({
-        "session_id": session.session_id,
+        "session_id": session.id,
         "user_id": str(user["_id"]),
         "user_email": user["email"],
         "plan": req.plan,
@@ -1568,21 +1578,23 @@ async def create_checkout(req: CheckoutRequest, request: Request, user=Depends(g
         "created_at": datetime.now(timezone.utc),
     })
     
-    return api_ok({"url": session.url, "session_id": session.session_id})
+    return api_ok({"url": session.url, "session_id": session.id})
 
 @app.get("/api/payments/status/{session_id}")
 async def check_payment_status(session_id: str, user=Depends(get_current_user)):
-    stripe_checkout = StripeCheckout(
-        api_key=STRIPE_API_KEY,
-        webhook_url=f"{APP_URL}/api/webhook/stripe"
-    )
+    # Get Stripe session status
+    session = stripe.checkout.Session.retrieve(session_id)
     
-    checkout_status = await stripe_checkout.get_checkout_status(session_id)
+    payment_status = "pending"
+    if session.payment_status == "paid":
+        payment_status = "paid"
+    elif session.status == "expired":
+        payment_status = "expired"
     
     # Update transaction if paid
     tx = await db.payment_transactions.find_one({"session_id": session_id})
     
-    if checkout_status.payment_status == "paid" and tx and tx.get("payment_status") != "paid":
+    if payment_status == "paid" and tx and tx.get("payment_status") != "paid":
         plan_name = tx.get("plan", "monthly")
         plan = SUBSCRIPTION_PLANS.get(plan_name, SUBSCRIPTION_PLANS["monthly"])
         expiry = datetime.now(timezone.utc) + timedelta(days=plan["duration_days"])
@@ -1600,8 +1612,8 @@ async def check_payment_status(session_id: str, user=Depends(get_current_user)):
         )
     
     return api_ok({
-        "status": checkout_status.status,
-        "payment_status": checkout_status.payment_status,
+        "status": session.status,
+        "payment_status": payment_status,
         "session_id": session_id,
     })
 
@@ -1609,30 +1621,39 @@ async def check_payment_status(session_id: str, user=Depends(get_current_user)):
 async def stripe_webhook(request: Request):
     body = await request.body()
     sig = request.headers.get("Stripe-Signature", "")
+    endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     
     try:
-        stripe_checkout = StripeCheckout(
-            api_key=STRIPE_API_KEY,
-            webhook_url=f"{APP_URL}/api/webhook/stripe"
-        )
-        webhook_response = await stripe_checkout.handle_webhook(body, sig)
+        # Verify webhook signature if secret is configured
+        if endpoint_secret:
+            event = stripe.Webhook.construct_event(body, sig, endpoint_secret)
+        else:
+            # Without secret, just parse the event
+            import json as json_lib
+            event = json_lib.loads(body)
         
-        if webhook_response.payment_status == "paid":
-            session_id = webhook_response.session_id
-            tx = await db.payment_transactions.find_one({"session_id": session_id})
-            if tx and tx.get("payment_status") != "paid":
-                plan_name = tx.get("plan", "monthly")
-                plan = SUBSCRIPTION_PLANS.get(plan_name, SUBSCRIPTION_PLANS["monthly"])
-                expiry = datetime.now(timezone.utc) + timedelta(days=plan["duration_days"])
-                
-                await db.users.update_one(
-                    {"_id": ObjectId(tx["user_id"])},
-                    {"$set": {"subscription": plan_name, "subscription_expiry": expiry}}
-                )
-                await db.payment_transactions.update_one(
-                    {"session_id": session_id},
-                    {"$set": {"payment_status": "paid", "status": "completed"}}
-                )
+        event_type = event.get("type") if isinstance(event, dict) else event.type
+        
+        if event_type == "checkout.session.completed":
+            session = event.get("data", {}).get("object", {}) if isinstance(event, dict) else event.data.object
+            session_id = session.get("id") if isinstance(session, dict) else session.id
+            payment_status = session.get("payment_status") if isinstance(session, dict) else session.payment_status
+            
+            if payment_status == "paid":
+                tx = await db.payment_transactions.find_one({"session_id": session_id})
+                if tx and tx.get("payment_status") != "paid":
+                    plan_name = tx.get("plan", "monthly")
+                    plan = SUBSCRIPTION_PLANS.get(plan_name, SUBSCRIPTION_PLANS["monthly"])
+                    expiry = datetime.now(timezone.utc) + timedelta(days=plan["duration_days"])
+                    
+                    await db.users.update_one(
+                        {"_id": ObjectId(tx["user_id"])},
+                        {"$set": {"subscription": plan_name, "subscription_expiry": expiry}}
+                    )
+                    await db.payment_transactions.update_one(
+                        {"session_id": session_id},
+                        {"$set": {"payment_status": "paid", "status": "completed"}}
+                    )
     except Exception as e:
         logger.error(f"Webhook error: {e}")
     
@@ -1741,10 +1762,7 @@ async def ai_chat(req: ChatRequest, user=Depends(get_optional_user)):
             user_sub = "Pro Monthly" if sub == "monthly" else "Pro Annual" if sub == "annual" else "Free Trial"
             user_name = user.get("name", "User")
         
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"chat_{uuid.uuid4()}",
-            system_message=f"""You are PumpRadar AI - an intelligent crypto market assistant. You're knowledgeable, helpful, and precise.
+        system_instruction = f"""You are PumpRadar AI - an intelligent crypto market assistant. You're knowledgeable, helpful, and precise.
 
 PLATFORM OVERVIEW:
 PumpRadar uses quantitative analysis + AI (Gemini) to detect cryptocurrency pump and dump signals. Data sources: CoinGecko (price/volume), Fear & Greed Index, social trending.
@@ -1786,9 +1804,13 @@ RESPONSE GUIDELINES:
 - Be friendly and professional
 
 If asked about a specific coin, check if it's in our current signals and provide details."""
-        ).with_model("gemini", "gemini-2.5-flash")
         
-        response = await chat.send_message(UserMessage(text=req.message))
+        chat = genai.GenerativeModel(
+            model_name="gemini-2.0-flash",
+            system_instruction=system_instruction
+        )
+        
+        response = await asyncio.to_thread(lambda: chat.generate_content(req.message).text)
         return api_ok({"reply": response})
     except Exception as e:
         logger.error(f"AI chat error: {e}")
@@ -1915,11 +1937,10 @@ async def get_coin_detail(symbol: str, type: str = "pump", user=Depends(get_opti
     trend_conclusion = ""
     if signal:
         try:
-            chat = LlmChat(
-                api_key=EMERGENT_LLM_KEY,
-                session_id=f"coin_detail_{uuid.uuid4()}",
-                system_message="You are a crypto technical analysis expert. You respond in English, concisely and directly."
-            ).with_model("gemini", "gemini-2.5-flash")
+            chat = genai.GenerativeModel(
+                model_name="gemini-2.0-flash",
+                system_instruction="You are a crypto technical analysis expert. You respond in English, concisely and directly."
+            )
             
             prompt = f"""Analyze {symbol} ({signal.get('name', symbol)}) in detail as a {'PUMP' if type == 'pump' else 'DUMP'} signal.
 
@@ -1939,7 +1960,7 @@ Respond with JSON (all text in English):
   "trend": "Clear conclusion about the trend and reasoning in 2 sentences, with key indicators"
 }}"""
             
-            resp = await chat.send_message(UserMessage(text=prompt))
+            resp = await asyncio.to_thread(lambda: chat.generate_content(prompt).text)
             import json as json_lib
             resp_clean = resp.strip()
             if resp_clean.startswith("```"):
