@@ -1172,6 +1172,322 @@ async def update_alert_settings(settings: AlertSettings, user=Depends(get_curren
     )
     return api_ok({"message": "Alert settings updated"})
 
+# ─────────────────────────────────────────────
+# SIGNAL ACCURACY TRACKER
+# ─────────────────────────────────────────────
+async def track_signal_accuracy():
+    """
+    Track if PUMP/DUMP predictions came true after 1h, 4h, 24h.
+    Called hourly by scheduler.
+    """
+    try:
+        # Get signals that need accuracy check
+        now = datetime.now(timezone.utc)
+        
+        # Find predictions from 1h, 4h, 24h ago that haven't been verified
+        time_windows = [
+            {"hours": 1, "field": "accuracy_1h"},
+            {"hours": 4, "field": "accuracy_4h"},
+            {"hours": 24, "field": "accuracy_24h"},
+        ]
+        
+        for window in time_windows:
+            target_time = now - timedelta(hours=window["hours"])
+            field = window["field"]
+            
+            # Find signals from that time window that don't have this accuracy field
+            snapshots = await db.signal_snapshots.find({
+                "timestamp": {
+                    "$gte": target_time - timedelta(minutes=30),
+                    "$lte": target_time + timedelta(minutes=30)
+                },
+                field: {"$exists": False}
+            }).to_list(length=10)
+            
+            for snapshot in snapshots:
+                pump_signals = snapshot.get("pump_signals", [])
+                dump_signals = snapshot.get("dump_signals", [])
+                
+                # Get current prices for these coins
+                correct_pumps = 0
+                total_pumps = len(pump_signals)
+                correct_dumps = 0
+                total_dumps = len(dump_signals)
+                
+                for signal in pump_signals:
+                    symbol = signal.get("symbol", "").lower()
+                    original_price = signal.get("price", 0)
+                    
+                    # Fetch current price
+                    try:
+                        resp = requests.get(
+                            f"https://api.coingecko.com/api/v3/simple/price",
+                            params={"ids": signal.get("coin_id", symbol), "vs_currencies": "usd"},
+                            timeout=5
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            current_price = list(data.values())[0].get("usd", 0) if data else 0
+                            
+                            # PUMP is correct if price increased
+                            if current_price > original_price:
+                                correct_pumps += 1
+                    except:
+                        pass
+                
+                for signal in dump_signals:
+                    symbol = signal.get("symbol", "").lower()
+                    original_price = signal.get("price", 0)
+                    
+                    try:
+                        resp = requests.get(
+                            f"https://api.coingecko.com/api/v3/simple/price",
+                            params={"ids": signal.get("coin_id", symbol), "vs_currencies": "usd"},
+                            timeout=5
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            current_price = list(data.values())[0].get("usd", 0) if data else 0
+                            
+                            # DUMP is correct if price decreased
+                            if current_price < original_price:
+                                correct_dumps += 1
+                    except:
+                        pass
+                
+                # Calculate accuracy
+                pump_accuracy = (correct_pumps / total_pumps * 100) if total_pumps > 0 else 0
+                dump_accuracy = (correct_dumps / total_dumps * 100) if total_dumps > 0 else 0
+                overall_accuracy = ((correct_pumps + correct_dumps) / (total_pumps + total_dumps) * 100) if (total_pumps + total_dumps) > 0 else 0
+                
+                # Store accuracy data
+                await db.signal_snapshots.update_one(
+                    {"_id": snapshot["_id"]},
+                    {"$set": {
+                        field: {
+                            "pump_accuracy": round(pump_accuracy, 1),
+                            "dump_accuracy": round(dump_accuracy, 1),
+                            "overall_accuracy": round(overall_accuracy, 1),
+                            "correct_pumps": correct_pumps,
+                            "total_pumps": total_pumps,
+                            "correct_dumps": correct_dumps,
+                            "total_dumps": total_dumps,
+                            "verified_at": now.isoformat(),
+                        }
+                    }}
+                )
+                
+                logger.info(f"Accuracy tracked for {window['hours']}h: PUMP {pump_accuracy:.1f}%, DUMP {dump_accuracy:.1f}%")
+                
+    except Exception as e:
+        logger.error(f"Accuracy tracking error: {e}")
+
+@app.get("/api/crypto/accuracy")
+async def get_signal_accuracy(user=Depends(get_optional_user)):
+    """Get signal accuracy statistics"""
+    # Get last 24 snapshots with accuracy data
+    snapshots = await db.signal_snapshots.find({
+        "$or": [
+            {"accuracy_1h": {"$exists": True}},
+            {"accuracy_4h": {"$exists": True}},
+            {"accuracy_24h": {"$exists": True}},
+        ]
+    }).sort("timestamp", -1).limit(48).to_list(length=48)
+    
+    # Aggregate accuracy stats
+    stats_1h = {"pump": [], "dump": [], "overall": []}
+    stats_4h = {"pump": [], "dump": [], "overall": []}
+    stats_24h = {"pump": [], "dump": [], "overall": []}
+    
+    for snap in snapshots:
+        if snap.get("accuracy_1h"):
+            acc = snap["accuracy_1h"]
+            stats_1h["pump"].append(acc.get("pump_accuracy", 0))
+            stats_1h["dump"].append(acc.get("dump_accuracy", 0))
+            stats_1h["overall"].append(acc.get("overall_accuracy", 0))
+        
+        if snap.get("accuracy_4h"):
+            acc = snap["accuracy_4h"]
+            stats_4h["pump"].append(acc.get("pump_accuracy", 0))
+            stats_4h["dump"].append(acc.get("dump_accuracy", 0))
+            stats_4h["overall"].append(acc.get("overall_accuracy", 0))
+        
+        if snap.get("accuracy_24h"):
+            acc = snap["accuracy_24h"]
+            stats_24h["pump"].append(acc.get("pump_accuracy", 0))
+            stats_24h["dump"].append(acc.get("dump_accuracy", 0))
+            stats_24h["overall"].append(acc.get("overall_accuracy", 0))
+    
+    def avg(lst):
+        return round(sum(lst) / len(lst), 1) if lst else 0
+    
+    return api_ok({
+        "accuracy_1h": {
+            "pump": avg(stats_1h["pump"]),
+            "dump": avg(stats_1h["dump"]),
+            "overall": avg(stats_1h["overall"]),
+            "samples": len(stats_1h["overall"]),
+        },
+        "accuracy_4h": {
+            "pump": avg(stats_4h["pump"]),
+            "dump": avg(stats_4h["dump"]),
+            "overall": avg(stats_4h["overall"]),
+            "samples": len(stats_4h["overall"]),
+        },
+        "accuracy_24h": {
+            "pump": avg(stats_24h["pump"]),
+            "dump": avg(stats_24h["dump"]),
+            "overall": avg(stats_24h["overall"]),
+            "samples": len(stats_24h["overall"]),
+        },
+        "last_updated": snapshots[0]["timestamp"].isoformat() if snapshots else None,
+    })
+
+# ─────────────────────────────────────────────
+# DAILY MARKET OPEN EMAILS (PRO FEATURE)
+# ─────────────────────────────────────────────
+async def send_market_open_email(market: str):
+    """
+    Send best signal candidates email at market open.
+    Called by scheduler at:
+    - London: 08:00 UTC (LSE opens)
+    - New York: 14:30 UTC (NYSE opens at 9:30 AM EST)
+    """
+    try:
+        # Get latest signals
+        snapshot = await db.signal_snapshots.find_one({}, sort=[("timestamp", -1)])
+        if not snapshot:
+            logger.warning(f"No signals available for {market} market open email")
+            return
+        
+        pump_signals = snapshot.get("pump_signals", [])[:5]  # Top 5 pumps
+        dump_signals = snapshot.get("dump_signals", [])[:3]  # Top 3 dumps
+        fear_greed = snapshot.get("fear_greed", {})
+        market_summary = snapshot.get("market_summary", "")
+        
+        if not pump_signals and not dump_signals:
+            return
+        
+        # Get all Pro subscribers with daily emails enabled
+        pro_users = await db.users.find({
+            "subscription": {"$in": ["monthly", "annual"]},
+            "daily_market_emails": {"$ne": False},  # Default to True if not set
+        }).to_list(length=1000)
+        
+        if not pro_users:
+            return
+        
+        market_name = "London Stock Exchange" if market == "london" else "New York Stock Exchange"
+        market_emoji = "🇬🇧" if market == "london" else "🇺🇸"
+        
+        for user in pro_users:
+            email = user.get("email")
+            name = user.get("name", "Trader")
+            
+            # Build email content
+            pump_html = ""
+            for i, s in enumerate(pump_signals, 1):
+                pump_html += f"""
+                <tr>
+                  <td style="padding:8px;border-bottom:1px solid #334155">{i}. <strong>{s.get('symbol')}</strong></td>
+                  <td style="padding:8px;border-bottom:1px solid #334155;color:#10b981">{s.get('signal_strength', 0)}%</td>
+                  <td style="padding:8px;border-bottom:1px solid #334155">${s.get('price', 0):.6f}</td>
+                  <td style="padding:8px;border-bottom:1px solid #334155;color:#10b981">+{s.get('price_change_1h', 0):.2f}%</td>
+                </tr>"""
+            
+            dump_html = ""
+            for i, s in enumerate(dump_signals, 1):
+                dump_html += f"""
+                <tr>
+                  <td style="padding:8px;border-bottom:1px solid #334155">{i}. <strong>{s.get('symbol')}</strong></td>
+                  <td style="padding:8px;border-bottom:1px solid #334155;color:#ef4444">{s.get('signal_strength', 0)}%</td>
+                  <td style="padding:8px;border-bottom:1px solid #334155">${s.get('price', 0):.6f}</td>
+                  <td style="padding:8px;border-bottom:1px solid #334155;color:#ef4444">{s.get('price_change_1h', 0):.2f}%</td>
+                </tr>"""
+            
+            html = f"""
+            <div style="font-family:sans-serif;max-width:650px;margin:0 auto;padding:24px;background:#0f172a;color:#fff;border-radius:12px">
+              <div style="text-align:center;margin-bottom:24px">
+                <h1 style="color:#fff;margin:0">{market_emoji} {market_name} Opens</h1>
+                <p style="color:#94a3b8;margin:8px 0 0 0">Daily Signal Report for {name}</p>
+              </div>
+              
+              <div style="background:#1e293b;padding:16px;border-radius:8px;margin-bottom:20px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span style="color:#94a3b8">Fear & Greed Index</span>
+                  <span style="font-size:24px;font-weight:bold;color:{'#ef4444' if fear_greed.get('value', 50) < 30 else '#f59e0b' if fear_greed.get('value', 50) < 50 else '#10b981'}">{fear_greed.get('value', 'N/A')}/100</span>
+                </div>
+                <p style="color:#cbd5e1;margin:8px 0 0 0;font-size:14px">{fear_greed.get('classification', 'N/A')}</p>
+              </div>
+              
+              <h2 style="color:#10b981;margin:24px 0 12px 0;font-size:18px">🚀 Top PUMP Candidates</h2>
+              <table style="width:100%;border-collapse:collapse;background:#1e293b;border-radius:8px;overflow:hidden">
+                <thead>
+                  <tr style="background:#334155">
+                    <th style="padding:10px;text-align:left;color:#94a3b8">Coin</th>
+                    <th style="padding:10px;text-align:left;color:#94a3b8">Signal</th>
+                    <th style="padding:10px;text-align:left;color:#94a3b8">Price</th>
+                    <th style="padding:10px;text-align:left;color:#94a3b8">1h</th>
+                  </tr>
+                </thead>
+                <tbody>{pump_html}</tbody>
+              </table>
+              
+              <h2 style="color:#ef4444;margin:24px 0 12px 0;font-size:18px">📉 DUMP Warnings</h2>
+              <table style="width:100%;border-collapse:collapse;background:#1e293b;border-radius:8px;overflow:hidden">
+                <thead>
+                  <tr style="background:#334155">
+                    <th style="padding:10px;text-align:left;color:#94a3b8">Coin</th>
+                    <th style="padding:10px;text-align:left;color:#94a3b8">Signal</th>
+                    <th style="padding:10px;text-align:left;color:#94a3b8">Price</th>
+                    <th style="padding:10px;text-align:left;color:#94a3b8">1h</th>
+                  </tr>
+                </thead>
+                <tbody>{dump_html}</tbody>
+              </table>
+              
+              <div style="background:#1e293b;padding:16px;border-radius:8px;margin-top:20px">
+                <h3 style="color:#6366f1;margin:0 0 8px 0;font-size:14px">🤖 AI Market Summary</h3>
+                <p style="color:#cbd5e1;margin:0;font-size:14px;line-height:1.5">{market_summary[:400]}...</p>
+              </div>
+              
+              <div style="text-align:center;margin-top:24px">
+                <a href="{APP_URL}/dashboard" 
+                   style="display:inline-block;background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold">
+                  View Full Dashboard →
+                </a>
+              </div>
+              
+              <p style="color:#64748b;font-size:11px;text-align:center;margin-top:24px;border-top:1px solid #334155;padding-top:16px">
+                This is not financial advice. Always do your own research.<br>
+                <a href="{APP_URL}/settings" style="color:#6366f1">Manage email preferences</a>
+              </p>
+            </div>"""
+            
+            try:
+                await asyncio.to_thread(resend.Emails.send, {
+                    "from": f"PumpRadar <{SENDER_EMAIL}>",
+                    "to": [email],
+                    "subject": f"{market_emoji} {market_name} Opens - Top Signals for Today",
+                    "html": html,
+                })
+                logger.info(f"Market open email sent to {email} for {market}")
+            except Exception as e:
+                logger.error(f"Market open email error for {email}: {e}")
+        
+        logger.info(f"{market.upper()} market open emails sent to {len(pro_users)} Pro users")
+        
+    except Exception as e:
+        logger.exception(f"Market open email job error: {e}")
+
+async def send_london_market_email():
+    """Wrapper for London market open email"""
+    await send_market_open_email("london")
+
+async def send_nyse_market_email():
+    """Wrapper for NYSE market open email"""
+    await send_market_open_email("nyse")
+
 @app.post("/api/crypto/refresh")
 async def manual_refresh(background_tasks: BackgroundTasks, user=Depends(get_current_user)):
     """Manual trigger for signal refresh (admin only)"""
@@ -1308,6 +1624,13 @@ async def get_subscription(user=Depends(get_current_user)):
     sub = user.get("subscription", "free")
     expiry = user.get("subscription_expiry")
     
+    # Normalize expiry to timezone-aware datetime
+    if expiry:
+        if isinstance(expiry, str):
+            expiry = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+        if isinstance(expiry, datetime) and expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+    
     is_active = False
     if sub in ("monthly", "annual"):
         if expiry:
@@ -1339,8 +1662,19 @@ async def startup_event():
     await db.signal_snapshots.create_index("timestamp")
     await db.payment_transactions.create_index("session_id", unique=True)
     
-    # Start scheduler - hourly job
+    # Start scheduler - hourly job for signals
     scheduler.add_job(fetch_and_store_signals, 'interval', hours=1, id='crypto_signals', replace_existing=True)
+    
+    # Accuracy tracking - runs hourly, 30 min offset
+    scheduler.add_job(track_signal_accuracy, 'interval', hours=1, id='accuracy_tracker', replace_existing=True)
+    
+    # Market open emails (PRO feature)
+    # London Stock Exchange opens at 08:00 UTC
+    scheduler.add_job(send_london_market_email, 'cron', hour=8, minute=0, id='london_market_email', replace_existing=True)
+    
+    # New York Stock Exchange opens at 14:30 UTC (9:30 AM EST)
+    scheduler.add_job(send_nyse_market_email, 'cron', hour=14, minute=30, id='nyse_market_email', replace_existing=True)
+    
     scheduler.start()
     
     # Initial fetch with delay to avoid rate limiting on hot-reload

@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/shared/ui/shadcn/components/ui/card';
 import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
 import { Button } from '@/shared/ui/shadcn/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/shadcn/components/ui/tabs';
+import AccuracyTracker from '../components/AccuracyTracker';
 
 interface Signal {
   symbol: string; name: string; signal_strength: number; reason: string;
@@ -328,6 +329,9 @@ export default function SignalsDashboard() {
 
       {/* AI Market Intelligence card */}
       {data?.market_summary && <AISummaryCard data={data} />}
+
+      {/* Signal Accuracy Tracker */}
+      <AccuracyTracker />
 
       {/* Upgrade Banner */}
       {!hasAccess && (
