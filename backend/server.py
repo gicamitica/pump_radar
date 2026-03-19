@@ -709,20 +709,43 @@ async def get_signals(user=Depends(get_optional_user)):
         })
     
     # Check subscription for full access
-    has_access = True  # Free users see signals but limited
+    has_access = True  # Default to true for unauthenticated users (limited view)
+    subscription_expired = False
+    
     if user:
         sub = user.get("subscription", "free")
         sub_expiry = user.get("subscription_expiry")
+        
         if sub in ("monthly", "annual"):
             has_access = True
         elif sub == "trial":
             if sub_expiry:
+                # Handle timezone
+                if isinstance(sub_expiry, str):
+                    sub_expiry = datetime.fromisoformat(sub_expiry.replace("Z", "+00:00"))
                 if hasattr(sub_expiry, 'tzinfo') and sub_expiry.tzinfo is None:
                     sub_expiry = sub_expiry.replace(tzinfo=timezone.utc)
-            if sub_expiry and datetime.now(timezone.utc) < sub_expiry:
-                has_access = True
+                
+                if datetime.now(timezone.utc) < sub_expiry:
+                    has_access = True
+                else:
+                    # Trial expired - block access
+                    has_access = False
+                    subscription_expired = True
             else:
                 has_access = False
+                subscription_expired = True
+        else:
+            # Free tier - no access
+            has_access = False
+            subscription_expired = True
+    
+    # If subscription expired, return 402 Payment Required
+    if subscription_expired and user:
+        raise HTTPException(
+            status_code=402,
+            detail=api_err("Your free trial has expired. Please subscribe to continue.", "SUBSCRIPTION_EXPIRED")
+        )
     
     pump = [serialize_signal(dict(s)) for s in snapshot.get("pump_signals", [])]
     dump = [serialize_signal(dict(s)) for s in snapshot.get("dump_signals", [])]

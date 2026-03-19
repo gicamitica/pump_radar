@@ -209,6 +209,7 @@ export default function SignalsDashboard() {
   const [loading, setLoading] = useState(true);
   const [nextRefresh, setNextRefresh] = useState<number>(3600);
   const [activeTab, setActiveTab] = useState('pump');
+  const [subscriptionExpired, setSubscriptionExpired] = useState(false);
 
   useEffect(() => {
     if (location.pathname.includes('dump')) setActiveTab('dump');
@@ -223,8 +224,13 @@ export default function SignalsDashboard() {
       const res = await axios.get('/api/crypto/signals', {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (res.data.success) { setData(res.data.data); setNextRefresh(3600); }
-    } catch {}
+      if (res.data.success) { setData(res.data.data); setNextRefresh(3600); setSubscriptionExpired(false); }
+    } catch (err: any) {
+      // Check for subscription expiry (402 Payment Required)
+      if (err.response?.status === 402) {
+        setSubscriptionExpired(true);
+      }
+    }
     finally { setLoading(false); }
   }, []);
 
@@ -238,6 +244,47 @@ export default function SignalsDashboard() {
   const dump = data?.dump_signals || [];
   const hasAccess = data?.has_full_access !== false;
   const FREE_LIMIT = 3;
+
+  // Show subscription expired banner
+  if (subscriptionExpired) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8" data-testid="subscription-expired">
+        <div className="w-20 h-20 bg-amber-100 dark:bg-amber-950 rounded-full flex items-center justify-center mb-6">
+          <Clock className="h-10 w-10 text-amber-500" />
+        </div>
+        <h2 className="text-2xl font-bold mb-2">Your Free Trial Has Expired</h2>
+        <p className="text-muted-foreground mb-6 max-w-md">
+          Your 24-hour free trial has ended. Subscribe to Pro to continue receiving AI-powered PUMP & DUMP signals.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Button 
+            size="lg" 
+            onClick={() => navigate('/subscription')}
+            className="bg-gradient-to-r from-emerald-500 to-blue-500 hover:from-emerald-400 hover:to-blue-400"
+            data-testid="upgrade-btn"
+          >
+            <Zap className="h-5 w-5 mr-2" />
+            Upgrade to Pro
+          </Button>
+          <Button variant="outline" size="lg" onClick={() => navigate('/')}>
+            Back to Home
+          </Button>
+        </div>
+        <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4 text-left max-w-2xl">
+          {[
+            { title: 'All Signals', desc: 'Access all PUMP & DUMP signals without limits' },
+            { title: 'Real-time AI', desc: 'Hourly AI analysis with Gemini' },
+            { title: 'Priority Support', desc: 'Get help when you need it' },
+          ].map((f, i) => (
+            <div key={i} className="bg-muted/30 rounded-xl p-4 border border-border">
+              <div className="font-semibold text-sm mb-1">{f.title}</div>
+              <div className="text-xs text-muted-foreground">{f.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5" data-testid="signals-dashboard">
