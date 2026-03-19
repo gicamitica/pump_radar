@@ -43,7 +43,12 @@ export default function CoinDetailPage() {
           headers: { Authorization: `Bearer ${getToken()}` },
         });
         if (res.data.success) setData(res.data.data);
-      } catch { setError('Could not load data for this coin.'); }
+      } catch (err: any) { 
+        const errorMsg = err.response?.data?.detail?.error?.message || 
+                        err.response?.data?.detail || 
+                        'Could not load data for this coin.';
+        setError(errorMsg); 
+      }
       finally { setLoading(false); }
     };
     fetch();
@@ -55,8 +60,20 @@ export default function CoinDetailPage() {
     </div>
   );
   if (error || !data) return (
-    <div className="flex items-center justify-center h-64 text-destructive gap-2">
-      <AlertCircle className="h-5 w-5" />{error}
+    <div className="flex flex-col items-center justify-center h-64 gap-4">
+      <div className="w-16 h-16 bg-red-100 dark:bg-red-950 rounded-full flex items-center justify-center">
+        <AlertCircle className="h-8 w-8 text-red-500" />
+      </div>
+      <div className="text-center">
+        <h2 className="text-xl font-bold text-destructive mb-2">Coin Not Found</h2>
+        <p className="text-muted-foreground text-sm max-w-md">{error || 'This coin does not exist or has been delisted.'}</p>
+      </div>
+      <button 
+        onClick={() => window.history.back()} 
+        className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90"
+      >
+        Go Back
+      </button>
     </div>
   );
 

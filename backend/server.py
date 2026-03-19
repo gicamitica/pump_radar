@@ -1180,6 +1180,16 @@ async def get_coin_detail(symbol: str, type: str = "pump", user=Depends(get_opti
     image = market_data.get("image") or (signal.get("image") if signal else "")
     coin_id = market_data.get("id") or symbol.lower()
     
+    # VALIDATION: If no valid data found, return 404
+    if price <= 0 and not signal:
+        raise HTTPException(
+            status_code=404, 
+            detail=api_err(f"Coin '{symbol}' not found or has no valid market data. It may be delisted or not supported.", "COIN_NOT_FOUND")
+        )
+    
+    # If coin has invalid data (price 0, market cap < $100k), warn user
+    is_invalid_coin = price <= 0 or market_cap < 100000
+    
     # Get chart data
     chart_data = get_coin_chart_data(coin_id, days=1)
     
