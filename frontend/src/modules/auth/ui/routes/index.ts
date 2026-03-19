@@ -21,13 +21,9 @@ const MfaSetupHero = lazy(() => import('@/modules/auth/ui/pages/hero/MfaSetupHer
 const MfaVerifyHero = lazy(() => import('@/modules/auth/ui/pages/hero/MfaVerifyHero'));
 
 // Custom pages
-const AuthCallback = lazy(() => import('@/modules/auth/ui/pages/AuthCallback'));
 const VerifyEmailPage = lazy(() => import('@/modules/auth/ui/pages/VerifyEmailPage'));
 
 export const AUTH_ROUTES: ModuleRoute[] = [
-  // OAuth Callback (must be before other routes)
-  { path: '/auth/callback', module: 'auth', layout: 'auth', title: 'Authenticating...', component: AuthCallback },
-  
   // Minimal
   { path: AUTH_PATHS.LOGIN, module: 'auth', layout: 'auth', title: 'Login', component: LoginMinimal },
   { path: AUTH_PATHS.REGISTER, module: 'auth', layout: 'auth', title: 'Register', component: RegisterMinimal },
