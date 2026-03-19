@@ -1218,9 +1218,19 @@ async def admin_update_user(user_id: str, body: dict, admin=Depends(require_admi
     update = {}
     if "subscription" in body:
         update["subscription"] = body["subscription"]
-        plan = SUBSCRIPTION_PLANS.get(body["subscription"])
-        if plan:
-            update["subscription_expiry"] = datetime.now(timezone.utc) + timedelta(days=plan["duration_days"])
+        
+        # Handle duration parameter for free subscriptions
+        duration = body.get("duration")
+        if duration == "month":
+            update["subscription_expiry"] = datetime.now(timezone.utc) + timedelta(days=30)
+        elif duration == "year":
+            update["subscription_expiry"] = datetime.now(timezone.utc) + timedelta(days=365)
+        else:
+            # Use default from SUBSCRIPTION_PLANS
+            plan = SUBSCRIPTION_PLANS.get(body["subscription"])
+            if plan:
+                update["subscription_expiry"] = datetime.now(timezone.utc) + timedelta(days=plan["duration_days"])
+    
     if "roles" in body:
         update["roles"] = body["roles"]
     if "name" in body:

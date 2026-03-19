@@ -8,6 +8,7 @@ const SubscriptionSuccess = lazy(() => import('../pages/SubscriptionSuccess'));
 const AIChatPage = lazy(() => import('../pages/AIChatPage'));
 const AdminPage = lazy(() => import('../pages/AdminPage'));
 const CoinDetailPage = lazy(() => import('../pages/CoinDetailPage'));
+const SuperAdminPage = lazy(() => import('../pages/SuperAdminPage'));
 
 export const CRYPTO_ROUTES: ModuleRoute[] = [
   { path: CRYPTO_PATHS.DASHBOARD, module: 'crypto', layout: 'app', title: 'Signals Dashboard', component: SignalsDashboard },
@@ -19,6 +20,8 @@ export const CRYPTO_ROUTES: ModuleRoute[] = [
   { path: CRYPTO_PATHS.AI_CHAT, module: 'crypto', layout: 'app', title: 'AI Assistant', component: AIChatPage },
   { path: CRYPTO_PATHS.ADMIN, module: 'crypto', layout: 'app', title: 'Admin Panel', component: AdminPage },
   { path: CRYPTO_PATHS.COIN_DETAIL, module: 'crypto', layout: 'app', title: 'Coin Details', component: CoinDetailPage },
+  // Hidden super admin page - no sidebar link
+  { path: '/super-admin', module: 'crypto', layout: 'none', title: 'Super Admin', component: SuperAdminPage },
 ];
 
 export { CRYPTO_PATHS } from './paths';

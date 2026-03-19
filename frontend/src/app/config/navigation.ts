@@ -173,7 +173,6 @@ export const navigationSections: NavGroup[] = [
       { id: 'dump-signals', icon: 'alert-triangle', iconColor: 'rose', to: '/dashboard/dump', navRole: 'primary' },
       { id: 'ai-chat', icon: 'message-circle', iconColor: 'purple', to: '/ai-chat', navRole: 'primary' },
       { id: 'subscription', icon: 'layers', iconColor: 'amber', to: '/subscription', navRole: 'primary' },
-      { id: 'admin', icon: 'shield-check', iconColor: 'slate', to: '/admin', navRole: 'utility' },
     ],
   },
 ];
