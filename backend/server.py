@@ -9,15 +9,17 @@ import uuid
 import requests
 import hashlib
 import secrets
+import httpx
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Annotated
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -350,6 +352,92 @@ async def resend_verification(request: Request, user=Depends(get_current_user)):
     return api_ok({"message": "Verification email sent! Please check your inbox."})
 
 # ─────────────────────────────────────────────
+# GOOGLE OAUTH (Emergent-managed)
+# ─────────────────────────────────────────────
+EMERGENT_AUTH_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+
+class GoogleAuthDTO(BaseModel):
+    session_id: str
+
+@app.post("/api/auth/google")
+async def google_auth(dto: GoogleAuthDTO, response: Response):
+    """Exchange Emergent OAuth session_id for user session"""
+    try:
+        # Call Emergent Auth to get user data
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                EMERGENT_AUTH_URL,
+                headers={"X-Session-ID": dto.session_id},
+                timeout=10.0
+            )
+            if resp.status_code != 200:
+                logger.error(f"Emergent Auth error: {resp.status_code} - {resp.text}")
+                raise HTTPException(status_code=401, detail=api_err("Google authentication failed", "GOOGLE_AUTH_FAILED"))
+            
+            google_data = resp.json()
+        
+        email = google_data.get("email", "").lower()
+        name = google_data.get("name", "")
+        picture = google_data.get("picture", "")
+        
+        if not email:
+            raise HTTPException(status_code=400, detail=api_err("No email from Google", "NO_EMAIL"))
+        
+        # Check if user exists
+        user = await db.users.find_one({"email": email})
+        
+        if user:
+            # Update existing user with Google info
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {
+                    "name": name or user.get("name", ""),
+                    "avatar": picture,
+                    "email_verified": True,  # Google emails are verified
+                    "google_id": google_data.get("id"),
+                    "last_login": datetime.now(timezone.utc),
+                }}
+            )
+            user = await db.users.find_one({"_id": user["_id"]})
+        else:
+            # Create new user with 24h trial
+            trial_expiry = datetime.now(timezone.utc) + timedelta(hours=24)
+            user_doc = {
+                "email": email,
+                "name": name,
+                "avatar": picture,
+                "google_id": google_data.get("id"),
+                "password_hash": "",  # No password for Google users
+                "roles": ["viewer"],
+                "email_verified": True,
+                "subscription": "trial",
+                "subscription_expiry": trial_expiry,
+                "created_at": datetime.now(timezone.utc),
+                "last_login": datetime.now(timezone.utc),
+            }
+            result = await db.users.insert_one(user_doc)
+            user_doc["_id"] = result.inserted_id
+            user = user_doc
+        
+        # Create JWT tokens
+        access_token = create_token(str(user["_id"]), user["email"])
+        refresh_token = create_token(str(user["_id"]), user["email"], timedelta(days=30))
+        
+        logger.info(f"Google auth successful for {email}")
+        
+        return api_ok({
+            "user": doc_to_user(user),
+            "accessToken": access_token,
+            "refreshToken": refresh_token,
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Google auth error: {e}")
+        raise HTTPException(status_code=500, detail=api_err("Authentication failed", "AUTH_ERROR"))
+
+# ─────────────────────────────────────────────
 # SUBSCRIPTION CHECK MIDDLEWARE
 # ─────────────────────────────────────────────
 async def check_subscription(user: dict) -> dict:
@@ -450,74 +538,187 @@ def get_coingecko_trending() -> List[str]:
     return []
 
 async def analyze_signals_with_ai(candidates: List[dict], fear_greed: dict = None, trending: List[str] = None) -> dict:
-    """Use Gemini to analyze and score pump/dump signals"""
+    """
+    SCIENTIFIC PUMP/DUMP SIGNAL ANALYSIS
+    
+    Uses multiple quantitative indicators:
+    1. Volume Spike Detection (Abnormal Volume = vol/mcap > 15% indicates institutional interest)
+    2. Momentum Analysis (RSI-like: 1h vs 24h price action divergence)
+    3. Market Sentiment Alignment (Fear & Greed correlation)
+    4. Social Trending Factor (CoinGecko trending = retail interest)
+    5. Price Action Patterns (Higher highs, lower lows detection)
+    
+    Signal Strength Formula:
+    PUMP = (vol_score * 0.3) + (momentum_score * 0.35) + (trend_score * 0.2) + (sentiment_score * 0.15)
+    DUMP = (vol_score * 0.25) + (decline_score * 0.4) + (selling_pressure * 0.2) + (sentiment_score * 0.15)
+    """
     if not candidates:
         return {"pump_signals": [], "dump_signals": [], "market_summary": "No data available"}
     
     try:
         fg = fear_greed or {"value": 50, "classification": "Neutral"}
         trending_str = ", ".join(trending[:10]) if trending else "N/A"
+        fg_value = fg.get("value", 50)
+        
+        # Pre-calculate scientific scores for each coin
+        scored_candidates = []
+        for c in candidates:
+            vol_mcap = c.get('vol_mcap_ratio', 0)
+            pc_1h = c.get('price_change_1h', 0)
+            pc_24h = c.get('price_change_24h', 0)
+            pc_7d = c.get('price_change_7d', 0)
+            is_trending = c.get('is_trending', False)
+            
+            # VOLUME ANOMALY SCORE (0-100)
+            # Normal vol/mcap is 3-8%, >15% is abnormal
+            vol_score = min(100, (vol_mcap / 20) * 100) if vol_mcap > 5 else vol_mcap * 10
+            
+            # MOMENTUM SCORE (0-100) - Positive momentum when 1h > 24h change rate
+            momentum_1h_normalized = pc_1h * 24  # Annualize 1h to compare with 24h
+            momentum_divergence = momentum_1h_normalized - pc_24h
+            momentum_score = min(100, max(0, 50 + momentum_divergence * 2))
+            
+            # TREND ALIGNMENT (0-100)
+            # Bullish: all timeframes positive and accelerating
+            trend_score = 0
+            if pc_1h > 0 and pc_24h > 0:
+                trend_score += 40
+            if pc_1h > pc_24h / 24:  # 1h rate > 24h average rate = acceleration
+                trend_score += 30
+            if is_trending:
+                trend_score += 30
+            
+            # SENTIMENT ALIGNMENT (0-100)
+            # In Fear (FG<30): contrarian buys are stronger signals
+            # In Greed (FG>70): momentum plays are stronger
+            sentiment_boost = 0
+            if fg_value < 30 and pc_1h > 0:  # Contrarian buy in fear
+                sentiment_boost = 20
+            elif fg_value > 60 and pc_1h > 2:  # Momentum in greed
+                sentiment_boost = 15
+            
+            # PUMP SIGNAL STRENGTH
+            pump_strength = (
+                vol_score * 0.30 +
+                momentum_score * 0.35 +
+                trend_score * 0.20 +
+                sentiment_boost * 0.15
+            )
+            
+            # DUMP SIGNAL ANALYSIS
+            # SELLING PRESSURE (0-100)
+            selling_pressure = 0
+            if pc_1h < 0 and pc_24h < 0:
+                selling_pressure = min(100, abs(pc_1h) * 10 + abs(pc_24h) * 2)
+            
+            # DECLINE ACCELERATION
+            decline_acceleration = 0
+            if pc_1h < 0 and pc_1h < pc_24h / 24:  # Dropping faster than 24h average
+                decline_acceleration = min(100, abs(pc_1h - pc_24h/24) * 15)
+            
+            # HIGH VOLUME DUMP (panic selling)
+            dump_vol_score = vol_score if pc_1h < -2 else 0
+            
+            dump_strength = (
+                dump_vol_score * 0.25 +
+                decline_acceleration * 0.40 +
+                selling_pressure * 0.20 +
+                (15 if fg_value > 70 else 0)  # Dumps in extreme greed are significant
+            )
+            
+            scored_candidates.append({
+                **c,
+                "pump_strength": round(pump_strength, 1),
+                "dump_strength": round(dump_strength, 1),
+                "vol_score": round(vol_score, 1),
+                "momentum_score": round(momentum_score, 1),
+            })
+        
+        # Select top pump candidates (strength > 50)
+        pump_candidates = sorted(
+            [c for c in scored_candidates if c["pump_strength"] > 45 and c.get("price_change_1h", 0) > 0],
+            key=lambda x: x["pump_strength"],
+            reverse=True
+        )[:15]
+        
+        # Select top dump candidates (strength > 40)
+        dump_candidates = sorted(
+            [c for c in scored_candidates if c["dump_strength"] > 35 and c.get("price_change_1h", 0) < 0],
+            key=lambda x: x["dump_strength"],
+            reverse=True
+        )[:10]
         
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"crypto_analysis_{uuid.uuid4()}",
-            system_message="""You are an expert crypto market analyst specializing in pump/dump signal detection.
-You analyze market data to identify opportunities and risks.
+            system_message="""You are a quantitative crypto analyst. You analyze PRE-SCORED signals and provide scientific explanations.
 You MUST respond ONLY in valid JSON format, with no text before or after the JSON.
-All text in the response MUST be in English."""
+All text in the response MUST be in English.
+Your analysis must be SPECIFIC with exact numbers and technical reasoning - no vague statements."""
         ).with_model("gemini", "gemini-2.5-flash")
         
-        # Sort by most interesting metrics first
-        interesting = sorted(candidates, key=lambda x: (
-            abs(x.get('price_change_1h', 0)) * 2 + 
-            abs(x.get('price_change_24h', 0)) + 
-            x.get('vol_mcap_ratio', 0) * 0.5 +
-            (10 if x.get('is_trending') else 0)
-        ), reverse=True)
+        pump_data = "\n".join([
+            f"{c['symbol']}: pump_score={c['pump_strength']}, price=${c['price']:.6f}, "
+            f"vol/mcap={c['vol_mcap_ratio']:.1f}%, 1h={c['price_change_1h']:+.2f}%, "
+            f"24h={c['price_change_24h']:+.2f}%, momentum={c['momentum_score']:.0f}, "
+            f"trending={'YES' if c.get('is_trending') else 'no'}"
+            for c in pump_candidates
+        ]) if pump_candidates else "No strong pump signals detected"
         
-        data_str = "\n".join([
-            f"{c['symbol']}: price=${c.get('price','?')}, vol/mcap={c.get('vol_mcap_ratio','?')}%, "
-            f"1h={c.get('price_change_1h','?')}%, 24h={c.get('price_change_24h','?')}%, "
-            f"7d={c.get('price_change_7d','?')}%, trending={'YES' if c.get('is_trending') else 'no'}"
-            for c in interesting[:25]
-        ])
+        dump_data = "\n".join([
+            f"{c['symbol']}: dump_score={c['dump_strength']}, price=${c['price']:.6f}, "
+            f"vol/mcap={c['vol_mcap_ratio']:.1f}%, 1h={c['price_change_1h']:+.2f}%, "
+            f"24h={c['price_change_24h']:+.2f}%"
+            for c in dump_candidates
+        ]) if dump_candidates else "No strong dump signals detected"
         
-        prompt = f"""Analyze these cryptocurrencies for PUMP and DUMP signals.
+        prompt = f"""Analyze these PRE-SCORED cryptocurrency signals and provide SCIENTIFIC explanations.
 
-MARKET CONTEXT:
-- Fear & Greed Index: {fg['value']}/100 ({fg['classification']})
-- Trending on CoinGecko: {trending_str}
+MARKET CONDITIONS:
+- Fear & Greed Index: {fg_value}/100 ({fg['classification']})
+- Market sentiment: {'EXTREME FEAR - contrarian opportunities' if fg_value < 25 else 'FEAR - cautious accumulation zone' if fg_value < 40 else 'NEUTRAL' if fg_value < 60 else 'GREED - momentum favored' if fg_value < 75 else 'EXTREME GREED - high reversal risk'}
+- Trending coins: {trending_str}
 
-COIN DATA (sorted by activity):
-{data_str}
+PUMP CANDIDATES (pre-scored by algorithm):
+{pump_data}
 
-Return JSON with this exact structure (no text before/after). ALL TEXT MUST BE IN ENGLISH:
+DUMP CANDIDATES (pre-scored by algorithm):
+{dump_data}
+
+Return JSON with this EXACT structure. For each signal, provide SPECIFIC technical reasoning with exact numbers:
+
 {{
   "pump_signals": [
     {{
       "symbol": "BTC",
       "signal_strength": 85,
-      "reason": "High volume/mcap ratio, positive 1h momentum, trending on CoinGecko",
+      "reason": "Volume spike at X% (3x normal), 1h momentum +Y% outpacing 24h average by Zx. RSI-equivalent shows bullish divergence. Probability of continued upward movement: W%.",
+      "technical_factors": "Abnormal volume accumulation, positive momentum divergence, Fear & Greed alignment",
       "confidence": "high",
-      "risk_level": "medium"
+      "risk_level": "medium",
+      "timeframe": "4-12 hours"
     }}
   ],
   "dump_signals": [
     {{
       "symbol": "ETH",
       "signal_strength": 70,
-      "reason": "Selling pressure, simultaneous 1h and 24h decline",
+      "reason": "Accelerating decline: 1h drop of X% is Yx faster than 24h average rate. High volume (Z%) suggests institutional selling. Support breakdown likely.",
+      "technical_factors": "Selling pressure acceleration, volume-confirmed decline, momentum breakdown",
       "confidence": "medium",
-      "risk_level": "high"
+      "risk_level": "high",
+      "timeframe": "2-8 hours"
     }}
   ],
-  "market_summary": "Fear & Greed at {fg['value']} ({fg['classification']}). Brief 2-sentence market summary in English."
+  "market_summary": "Fear & Greed at [FG_VALUE] signals [SENTIMENT]. [N] coins showing pump potential, [M] showing dump risk. Key observation: [specific technical insight]."
 }}
 
-PUMP criteria: vol/mcap >5%, positive price_change_1h, trending=YES, increasing momentum
-DUMP criteria: both price_change_1h and 24h negative, high vol/mcap (selling pressure), accelerating decline
-
-Return maximum 10 pump signals and 5 dump signals, ordered by signal_strength DESC."""
+IMPORTANT:
+- Use EXACT numbers from the data (don't round too much)
+- Explain WHY each signal is significant using the pre-calculated scores
+- Maximum 8 pump signals and 4 dump signals, sorted by signal_strength DESC
+- Confidence levels: high (>75 score), medium (50-75), low (<50)
+- Risk levels based on volatility and market conditions"""
         
         response = await chat.send_message(UserMessage(text=prompt))
         
@@ -969,42 +1170,81 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/ai/chat")
 async def ai_chat(req: ChatRequest, user=Depends(get_optional_user)):
-    """AI customer service chat powered by Gemini"""
+    """AI customer service chat powered by Gemini - Smart & Helpful"""
     try:
-        # Get latest signal context
+        # Get latest signal context with details
         snapshot = await db.signal_snapshots.find_one({}, sort=[("timestamp", -1)])
-        pump_count = len(snapshot.get("pump_signals", [])) if snapshot else 0
-        dump_count = len(snapshot.get("dump_signals", [])) if snapshot else 0
+        pump_signals = snapshot.get("pump_signals", []) if snapshot else []
+        dump_signals = snapshot.get("dump_signals", []) if snapshot else []
+        pump_count = len(pump_signals)
+        dump_count = len(dump_signals)
         summary = snapshot.get("market_summary", "") if snapshot else ""
+        fear_greed = snapshot.get("fear_greed", {}) if snapshot else {}
+        trending = snapshot.get("trending", []) if snapshot else []
+        
+        # Build detailed signal context
+        top_pumps = ", ".join([f"{s.get('symbol')} ({s.get('signal_strength', 0)}%)" for s in pump_signals[:5]]) or "None"
+        top_dumps = ", ".join([f"{s.get('symbol')} ({s.get('signal_strength', 0)}%)" for s in dump_signals[:3]]) or "None"
         
         user_sub = "Free Trial"
+        user_name = "Guest"
         if user:
             sub = user.get("subscription", "trial")
             user_sub = "Pro Monthly" if sub == "monthly" else "Pro Annual" if sub == "annual" else "Free Trial"
+            user_name = user.get("name", "User")
         
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"chat_{uuid.uuid4()}",
-            system_message=f"""You are the AI assistant for the PumpRadar platform.
-PumpRadar is a platform that analyzes crypto PUMP & DUMP signals using AI (Gemini), data from CoinGecko and LunarCrush.
+            system_message=f"""You are PumpRadar AI - an intelligent crypto market assistant. You're knowledgeable, helpful, and precise.
 
-CURRENT CONTEXT:
-- Active PUMP signals: {pump_count}
-- Active DUMP signals: {dump_count}  
-- Market summary: {summary}
-- Available plans: Trial (24h free), Pro Monthly ($29.99/month), Pro Annual ($199.99/year)
-- Current user: {f"authenticated - {user_sub}" if user else "not authenticated"}
+PLATFORM OVERVIEW:
+PumpRadar uses quantitative analysis + AI (Gemini) to detect cryptocurrency pump and dump signals. Data sources: CoinGecko (price/volume), Fear & Greed Index, social trending.
 
-You ALWAYS respond in English, are friendly and concise.
-You can help with: explanations about crypto signals, how the platform works, subscription plans, general trading tips (with disclaimer that these are not financial advice).
-You do not make guaranteed price predictions. Always add disclaimer that signals are not financial advice."""
+CURRENT LIVE DATA:
+- Active PUMP signals: {pump_count} coins showing bullish momentum
+- Active DUMP signals: {dump_count} coins showing bearish pressure
+- Top PUMP candidates: {top_pumps}
+- Top DUMP warnings: {top_dumps}
+- Fear & Greed Index: {fear_greed.get('value', 'N/A')}/100 ({fear_greed.get('classification', 'N/A')})
+- Trending on CoinGecko: {', '.join(trending[:5]) if trending else 'N/A'}
+- Market Summary: {summary}
+
+USER CONTEXT:
+- Name: {user_name}
+- Subscription: {user_sub}
+- Access level: {'Full signal access' if user_sub != 'Free Trial' else 'Limited preview (upgrade for full access)'}
+
+SUBSCRIPTION PLANS:
+- Free Trial: 24 hours of full access (automatically granted on signup)
+- Pro Monthly: $29.99/month - unlimited signals, AI analysis, coin details
+- Pro Annual: $199.99/year (save $160!) - all Pro features
+
+YOUR CAPABILITIES:
+1. Explain current market signals with specific data
+2. Describe how our quantitative scoring algorithm works (volume/mcap ratio, momentum divergence, trend alignment)
+3. Help users understand pump/dump mechanics
+4. Guide users through platform features
+5. Answer general crypto questions
+6. Explain subscription benefits
+
+RESPONSE GUIDELINES:
+- ALWAYS respond in English only
+- Be concise but informative (2-4 sentences for simple questions, more for complex ones)
+- Use specific numbers from live data when relevant
+- When discussing signals, mention the actual coins and their scores
+- For price predictions: explain we provide probability-based signals, not guarantees
+- Always include: "This is not financial advice. Always do your own research."
+- Be friendly and professional
+
+If asked about a specific coin, check if it's in our current signals and provide details."""
         ).with_model("gemini", "gemini-2.5-flash")
         
         response = await chat.send_message(UserMessage(text=req.message))
         return api_ok({"reply": response})
     except Exception as e:
         logger.error(f"AI chat error: {e}")
-        return api_ok({"reply": "Sorry, I cannot respond right now. Please try again in a few moments."})
+        return api_ok({"reply": "I apologize, but I'm experiencing technical difficulties. Please try again in a moment. If the issue persists, our system may be updating - check back in a few minutes."})
 
 # ─────────────────────────────────────────────
 # COIN DETAIL

@@ -6,13 +6,14 @@
  * - Outlet pattern to prevent layout re-renders
  * - Clear separation of public/auth/protected routes
  * - RBAC-ready guard system
+ * - Google OAuth callback handling
  * 
  * @author pg@5Studios.net
  * @since 2025-12-22
- * @version 2.0.0
+ * @version 2.1.0
  */
-import React, { Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import React, { Suspense, lazy } from 'react';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { moduleRegistry } from '@/core/di/container';
 import { NavigationProvider } from '@/app/providers/NavigationProvider';
 import { LayoutProvider } from '@/shared/ui/layouts/app';
@@ -24,6 +25,9 @@ import type { ModuleRoute } from '@/core/router/types';
 import { NAVIGATION_PATHS } from '@/core/router/paths';
 import Error404Page from '@/modules/pages/errors/ui/pages/Error404Page';
 import { RouteTracker } from './RouteTracker';
+
+// Lazy load AuthCallback for OAuth
+const AuthCallback = lazy(() => import('@/modules/auth/ui/pages/AuthCallback'));
 
 // Loading fallback with skeleton
 const LoadingFallback = () => (
@@ -108,7 +112,13 @@ const groupRoutesByLayout = (routes: ModuleRoute[]) => {
   return grouped;
 };
 
-const AppRouter: React.FC = () => {
+/**
+ * Inner router component that checks for OAuth callback
+ * CRITICAL: Check session_id synchronously during render to prevent race conditions
+ * REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+ */
+const InnerRouter: React.FC = () => {
+  const location = useLocation();
   const allRoutes = moduleRegistry.getAllRoutes();
   const { 
     none: publicRoutes, 
@@ -116,39 +126,54 @@ const AppRouter: React.FC = () => {
     app: appRoutes,
   } = groupRoutesByLayout(allRoutes);
 
+  // Check URL fragment for OAuth session_id - do this SYNCHRONOUSLY before any other routing
+  if (location.hash?.includes('session_id=')) {
+    return (
+      <Suspense fallback={<LoadingFallback />}>
+        <AuthCallback />
+      </Suspense>
+    );
+  }
+
+  return (
+    <Routes>
+      {/* Public routes - No layout */}
+      {renderRoutes(publicRoutes)}
+
+      {/* Auth routes - AuthLayout wrapper with error boundary */}
+      <Route element={
+        <ErrorBoundary name="Auth">
+          <AuthLayout />
+        </ErrorBoundary>
+      }>
+        {renderRoutes(authRoutes)}
+      </Route>
+
+      {/* Protected routes - ProtectedRoute guard + AppLayout wrapper with error boundary */}
+      <Route element={
+        <ErrorBoundary name="App">
+          <ProtectedRoute>
+            <AppLayout />
+          </ProtectedRoute>
+        </ErrorBoundary>
+      }>
+        {renderRoutes(appRoutes)}
+      </Route>
+
+      {/* Static error routes */}
+      <Route path={NAVIGATION_PATHS.UNAUTHORIZED} element={<UnauthorizedPage />} />
+      <Route path="*" element={<NotFoundPage />} />
+    </Routes>
+  );
+};
+
+const AppRouter: React.FC = () => {
   return (
     <BrowserRouter>
       <RouteTracker />
       <LayoutProvider>
         <NavigationProvider>
-          <Routes>
-            {/* Public routes - No layout */}
-            {renderRoutes(publicRoutes)}
-
-            {/* Auth routes - AuthLayout wrapper with error boundary */}
-            <Route element={
-              <ErrorBoundary name="Auth">
-                <AuthLayout />
-              </ErrorBoundary>
-            }>
-              {renderRoutes(authRoutes)}
-            </Route>
-
-            {/* Protected routes - ProtectedRoute guard + AppLayout wrapper with error boundary */}
-            <Route element={
-              <ErrorBoundary name="App">
-                <ProtectedRoute>
-                  <AppLayout />
-                </ProtectedRoute>
-              </ErrorBoundary>
-            }>
-              {renderRoutes(appRoutes)}
-            </Route>
-
-            {/* Static error routes */}
-            <Route path={NAVIGATION_PATHS.UNAUTHORIZED} element={<UnauthorizedPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
+          <InnerRouter />
         </NavigationProvider>
       </LayoutProvider>
     </BrowserRouter>
