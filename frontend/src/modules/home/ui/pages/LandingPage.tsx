@@ -3,47 +3,47 @@ import { useNavigate } from 'react-router-dom';
 import { TrendingUp, TrendingDown, Brain, Zap, Clock, Shield, ChevronRight, Check, Star, BarChart3, Activity, Menu, X } from 'lucide-react';
 
 const FEATURES = [
-  { icon: <Brain className="h-6 w-6" />, title: 'AI Gemini Analysis', desc: 'Semnale filtrate de AI din 100+ monede crypto în timp real', color: 'text-purple-400', bg: 'bg-purple-500/10' },
-  { icon: <Clock className="h-6 w-6" />, title: 'Actualizare Orară', desc: 'Date proaspete în fiecare oră din CoinGecko + Fear & Greed Index', color: 'text-blue-400', bg: 'bg-blue-500/10' },
-  { icon: <TrendingUp className="h-6 w-6" />, title: 'PUMP Signals', desc: 'Identifică monedele cu momentum pozitiv înainte de mișcarea mare', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-  { icon: <TrendingDown className="h-6 w-6" />, title: 'DUMP Signals', desc: 'Evită pierderile — detectează presiunea de vânzare din timp', color: 'text-red-400', bg: 'bg-red-500/10' },
-  { icon: <BarChart3 className="h-6 w-6" />, title: 'Social Data', desc: 'Volum social, sentiment și Galaxy Score din LunarCrush', color: 'text-amber-400', bg: 'bg-amber-500/10' },
-  { icon: <Shield className="h-6 w-6" />, title: 'Risk Rating', desc: 'Fiecare semnal vine cu nivel de risc și grad de încredere AI', color: 'text-pink-400', bg: 'bg-pink-500/10' },
+  { icon: <Brain className="h-6 w-6" />, title: 'AI Gemini Analysis', desc: 'AI-filtered signals from 100+ cryptocurrencies in real-time', color: 'text-purple-400', bg: 'bg-purple-500/10' },
+  { icon: <Clock className="h-6 w-6" />, title: 'Hourly Updates', desc: 'Fresh data every hour from CoinGecko + Fear & Greed Index', color: 'text-blue-400', bg: 'bg-blue-500/10' },
+  { icon: <TrendingUp className="h-6 w-6" />, title: 'PUMP Signals', desc: 'Identify coins with positive momentum before the big move', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+  { icon: <TrendingDown className="h-6 w-6" />, title: 'DUMP Signals', desc: 'Avoid losses — detect selling pressure early', color: 'text-red-400', bg: 'bg-red-500/10' },
+  { icon: <BarChart3 className="h-6 w-6" />, title: 'Social Data', desc: 'Social volume, sentiment and Galaxy Score from LunarCrush', color: 'text-amber-400', bg: 'bg-amber-500/10' },
+  { icon: <Shield className="h-6 w-6" />, title: 'Risk Rating', desc: 'Each signal comes with risk level and AI confidence score', color: 'text-pink-400', bg: 'bg-pink-500/10' },
 ];
 
 const PLANS = [
   {
-    name: 'Trial Gratuit',
+    name: 'Free Trial',
     price: '0',
-    period: '24 ore',
-    features: ['Primele 3 semnale PUMP', 'Primele 3 semnale DUMP', 'Rezumat AI', 'Acces 24h'],
-    cta: 'Încearcă Gratuit',
+    period: '24 hours',
+    features: ['First 3 PUMP signals', 'First 3 DUMP signals', 'AI Summary', '24h access'],
+    cta: 'Try Free',
     variant: 'outline',
   },
   {
-    name: 'Pro Lunar',
+    name: 'Pro Monthly',
     price: '29.99',
-    period: '/lună',
-    features: ['Toate semnalele PUMP & DUMP', 'Analiză AI completă', 'Date LunarCrush live', 'Actualizare orară', 'Suport prioritar'],
-    cta: 'Abonare Lunar',
+    period: '/month',
+    features: ['All PUMP & DUMP signals', 'Complete AI analysis', 'Live LunarCrush data', 'Hourly updates', 'Priority support'],
+    cta: 'Subscribe Monthly',
     variant: 'primary',
     badge: 'Popular',
   },
   {
-    name: 'Pro Anual',
+    name: 'Pro Annual',
     price: '199.99',
-    period: '/an',
-    features: ['Tot ce include Pro Lunar', 'Economisești €160/an', 'Acces 12 luni', 'Funcții noi în primă instanță'],
-    cta: 'Abonare Anual',
+    period: '/year',
+    features: ['Everything in Pro Monthly', 'Save $160/year', '12 month access', 'First access to new features'],
+    cta: 'Subscribe Annual',
     variant: 'outline',
     badge: '-44%',
   },
 ];
 
 const MOCK_SIGNALS = [
-  { symbol: 'AKT', name: 'Akash Network', type: 'pump', strength: 85, change1h: '+1.43%', change24h: '+1.25%', confidence: 'Puternic', reason: 'Trending CoinGecko + volum crescut' },
-  { symbol: 'SOL', name: 'Solana', type: 'pump', strength: 78, change1h: '+2.1%', change24h: '+5.3%', confidence: 'Puternic', reason: 'Momentum pozitiv toate intervalele' },
-  { symbol: 'LUNA', name: 'Terra Luna', type: 'dump', strength: 72, change1h: '-2.1%', change24h: '-8.3%', confidence: 'Mediu', reason: 'Presiune de vânzare puternică' },
+  { symbol: 'AKT', name: 'Akash Network', type: 'pump', strength: 85, change1h: '+1.43%', change24h: '+1.25%', confidence: 'Strong', reason: 'Trending CoinGecko + increased volume' },
+  { symbol: 'SOL', name: 'Solana', type: 'pump', strength: 78, change1h: '+2.1%', change24h: '+5.3%', confidence: 'Strong', reason: 'Positive momentum all timeframes' },
+  { symbol: 'LUNA', name: 'Terra Luna', type: 'dump', strength: 72, change1h: '-2.1%', change24h: '-8.3%', confidence: 'Medium', reason: 'Strong selling pressure' },
 ];
 
 export default function LandingPage() {
@@ -86,9 +86,9 @@ export default function LandingPage() {
 
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-6 text-sm text-slate-400">
-            <a href="#features" className="hover:text-white transition-colors">Funcții</a>
-            <a href="#signals" className="hover:text-white transition-colors">Semnale</a>
-            <a href="#pricing" className="hover:text-white transition-colors">Prețuri</a>
+            <a href="#features" className="hover:text-white transition-colors">Features</a>
+            <a href="#signals" className="hover:text-white transition-colors">Signals</a>
+            <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
           </div>
 
           <div className="hidden md:flex items-center gap-3">
@@ -97,14 +97,14 @@ export default function LandingPage() {
               className="text-sm text-slate-300 hover:text-white transition-colors px-4 py-2"
               data-testid="nav-login-btn"
             >
-              Intră în cont
+              Sign In
             </button>
             <button
               onClick={() => navigate('/auth/register')}
               className="text-sm bg-emerald-500 hover:bg-emerald-400 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
               data-testid="nav-register-btn"
             >
-              Încearcă Gratuit
+              Try Free
             </button>
           </div>
 
@@ -117,8 +117,8 @@ export default function LandingPage() {
         {/* Mobile Menu */}
         {menuOpen && (
           <div className="md:hidden bg-[#0d0e14] border-t border-white/5 px-4 py-4 space-y-3">
-            <button onClick={() => { navigate('/auth/login'); setMenuOpen(false); }} className="block w-full text-left text-slate-300 py-2">Intră în cont</button>
-            <button onClick={() => { navigate('/auth/register'); setMenuOpen(false); }} className="block w-full text-center bg-emerald-500 text-white font-semibold px-4 py-2 rounded-lg">Încearcă Gratuit</button>
+            <button onClick={() => { navigate('/auth/login'); setMenuOpen(false); }} className="block w-full text-left text-slate-300 py-2">Sign In</button>
+            <button onClick={() => { navigate('/auth/register'); setMenuOpen(false); }} className="block w-full text-center bg-emerald-500 text-white font-semibold px-4 py-2 rounded-lg">Try Free</button>
           </div>
         )}
       </nav>
@@ -132,21 +132,21 @@ export default function LandingPage() {
         <div className="max-w-4xl mx-auto text-center relative z-10">
           <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold px-4 py-2 rounded-full mb-8">
             <Activity className="h-3 w-3" />
-            AI activ — 100+ monede analizate orar
+            AI Active — 100+ coins analyzed hourly
           </div>
 
           <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight mb-6 leading-tight">
-            Semnale{' '}
+            AI-Powered{' '}
             <span className="bg-gradient-to-r from-emerald-400 to-blue-400 bg-clip-text text-transparent">
               PUMP & DUMP
             </span>
             <br />
-            generate de AI
+            Signals
           </h1>
 
           <p className="text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-            PumpRadar analizează date din CoinGecko și LunarCrush cu Gemini AI pentru a detecta oportunități
-            și riscuri în piața crypto — actualizat în fiecare oră.
+            PumpRadar analyzes data from CoinGecko and LunarCrush with Gemini AI to detect opportunities
+            and risks in the crypto market — updated every hour.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -156,7 +156,7 @@ export default function LandingPage() {
               data-testid="hero-cta-btn"
             >
               <Zap className="h-5 w-5" />
-              Încearcă Gratuit 24h
+              Try Free for 24h
               <ChevronRight className="h-4 w-4" />
             </button>
             <button
@@ -164,11 +164,11 @@ export default function LandingPage() {
               className="flex items-center justify-center gap-2 border border-white/10 hover:border-white/20 text-white font-semibold px-8 py-4 rounded-xl text-base transition-all hover:-translate-y-0.5"
               data-testid="hero-login-btn"
             >
-              Am deja cont
+              I have an account
             </button>
           </div>
 
-          <p className="text-sm text-slate-500 mt-4">Nu necesită card bancar · Trial 24h gratuit</p>
+          <p className="text-sm text-slate-500 mt-4">No credit card required · 24h free trial</p>
         </div>
       </section>
 
@@ -176,8 +176,8 @@ export default function LandingPage() {
       <section id="signals" className="py-16 px-4">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10">
-            <h2 className="text-2xl sm:text-3xl font-bold mb-3">Semnale AI Live</h2>
-            <p className="text-slate-400">Exemplu de semnale generate acum — autentifică-te pentru acces complet</p>
+            <h2 className="text-2xl sm:text-3xl font-bold mb-3">Live AI Signals</h2>
+            <p className="text-slate-400">Example signals generated now — sign in for full access</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -198,7 +198,7 @@ export default function LandingPage() {
                 </div>
                 <div className="mb-3">
                   <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-500">Putere semnal</span>
+                    <span className="text-slate-500">Signal Strength</span>
                     <span className="font-semibold">{signal.strength}%</span>
                   </div>
                   <div className="h-2 bg-white/5 rounded-full overflow-hidden">
@@ -226,7 +226,7 @@ export default function LandingPage() {
               className="inline-flex items-center gap-2 text-emerald-400 hover:text-emerald-300 font-semibold text-sm transition-colors"
               data-testid="see-all-signals-btn"
             >
-              Vezi toate semnalele — Înregistrează-te gratuit
+              See all signals — Register for free
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
@@ -237,8 +237,8 @@ export default function LandingPage() {
       <section id="features" className="py-16 px-4 bg-[#0d0e14]">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold mb-3">Tot ce ai nevoie pentru trading inteligent</h2>
-            <p className="text-slate-400">Date reale + AI = avantaj real în piață</p>
+            <h2 className="text-2xl sm:text-3xl font-bold mb-3">Everything you need for smart trading</h2>
+            <p className="text-slate-400">Real data + AI = real market advantage</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {FEATURES.map((f, i) => (
@@ -258,8 +258,8 @@ export default function LandingPage() {
       <section id="pricing" className="py-16 px-4">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold mb-3">Prețuri simple și transparente</h2>
-            <p className="text-slate-400">Începe gratuit, upgradează când ești gata</p>
+            <h2 className="text-2xl sm:text-3xl font-bold mb-3">Simple and transparent pricing</h2>
+            <p className="text-slate-400">Start free, upgrade when you're ready</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {PLANS.map((plan, i) => (
@@ -275,7 +275,7 @@ export default function LandingPage() {
                 <div className="mb-4">
                   <div className="text-sm text-slate-400 mb-1">{plan.name}</div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-extrabold">{plan.price === '0' ? 'Gratuit' : `€${plan.price}`}</span>
+                    <span className="text-3xl font-extrabold">{plan.price === '0' ? 'Free' : `$${plan.price}`}</span>
                     <span className="text-slate-500 text-sm">{plan.period}</span>
                   </div>
                 </div>
@@ -297,7 +297,7 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
-          <p className="text-center text-xs text-slate-500 mt-6">Plăți securizate prin Stripe · Anulare oricând</p>
+          <p className="text-center text-xs text-slate-500 mt-6">Secure payments via Stripe · Cancel anytime</p>
         </div>
       </section>
 
@@ -308,10 +308,10 @@ export default function LandingPage() {
             <TrendingUp className="h-8 w-8 text-emerald-400" />
           </div>
           <h2 className="text-3xl sm:text-4xl font-extrabold mb-4">
-            Începe să tranzacționezi mai inteligent
+            Start trading smarter
           </h2>
           <p className="text-slate-400 mb-8 text-lg">
-            Înregistrează-te în 30 de secunde și primești acces gratuit 24h la toate semnalele AI.
+            Register in 30 seconds and get free 24h access to all AI signals.
           </p>
           <button
             onClick={() => navigate('/auth/register')}
@@ -319,7 +319,7 @@ export default function LandingPage() {
             data-testid="final-cta-btn"
           >
             <Zap className="h-5 w-5" />
-            Creează Cont Gratuit
+            Create Free Account
           </button>
         </div>
       </section>
@@ -333,10 +333,10 @@ export default function LandingPage() {
             </div>
             <span className="font-bold text-sm">PumpRadar</span>
           </div>
-          <p className="text-xs text-slate-500">Semnalele nu constituie sfaturi financiare. Investiți responsabil.</p>
+          <p className="text-xs text-slate-500">Signals are not financial advice. Invest responsibly.</p>
           <div className="flex gap-4 text-xs text-slate-500">
             <button onClick={() => navigate('/auth/login')} className="hover:text-white transition-colors">Login</button>
-            <button onClick={() => navigate('/auth/register')} className="hover:text-white transition-colors">Înregistrare</button>
+            <button onClick={() => navigate('/auth/register')} className="hover:text-white transition-colors">Register</button>
           </div>
         </div>
       </footer>

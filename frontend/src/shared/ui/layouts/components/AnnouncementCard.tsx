@@ -57,12 +57,12 @@ const AnnouncementCard: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400/80">Acces Pro</div>
+              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400/80">Pro Access</div>
               <h3 className="text-sm font-bold text-white tracking-tight leading-snug">
-                Semnale AI Complete
+                Complete AI Signals
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Accesează toate semnalele PUMP & DUMP cu analiză AI în timp real.
+                Unlock all PUMP & DUMP signals with real-time AI analysis.
               </p>
             </div>
 
@@ -71,7 +71,7 @@ const AnnouncementCard: React.FC = () => {
               className="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-semibold py-2 px-3 rounded-xl transition-colors"
             >
               <Zap className="size-3.5" />
-              Vezi Planuri
+              View Plans
               <ArrowRight className="size-3.5" />
             </button>
           </div>

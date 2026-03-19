@@ -56,8 +56,8 @@ export default function SubscriptionSuccess() {
           {status === 'loading' && (
             <>
               <Loader2 className="h-16 w-16 animate-spin text-primary mx-auto mb-4" />
-              <h2 className="text-xl font-bold mb-2">Se verifică plata...</h2>
-              <p className="text-muted-foreground">Așteptați câteva secunde</p>
+              <h2 className="text-xl font-bold mb-2">Verifying payment...</h2>
+              <p className="text-muted-foreground">Please wait a few seconds</p>
             </>
           )}
           {status === 'success' && (
@@ -65,18 +65,18 @@ export default function SubscriptionSuccess() {
               <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-950 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle className="h-10 w-10 text-emerald-500" />
               </div>
-              <h2 className="text-2xl font-bold mb-2">Plată reușită!</h2>
+              <h2 className="text-2xl font-bold mb-2">Payment Successful!</h2>
               <p className="text-muted-foreground mb-6">
-                Abonamentul tău Pro este acum activ. Ai acces complet la toate semnalele AI.
+                Your Pro subscription is now active. You have full access to all AI signals.
               </p>
               <div className="space-y-3">
                 <Button className="w-full" onClick={() => navigate('/dashboard')} data-testid="go-dashboard-btn">
                   <Zap className="h-4 w-4 mr-2" />
-                  Deschide Dashboard
+                  Open Dashboard
                 </Button>
                 <Button variant="outline" className="w-full" onClick={() => navigate('/pages/pricing')}>
                   <Calendar className="h-4 w-4 mr-2" />
-                  Vezi Abonament
+                  View Subscription
                 </Button>
               </div>
             </>
@@ -86,12 +86,12 @@ export default function SubscriptionSuccess() {
               <div className="w-20 h-20 bg-red-100 dark:bg-red-950 rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertCircle className="h-10 w-10 text-red-500" />
               </div>
-              <h2 className="text-2xl font-bold mb-2">Eroare la verificare</h2>
+              <h2 className="text-2xl font-bold mb-2">Verification Error</h2>
               <p className="text-muted-foreground mb-6">
-                Nu am putut verifica plata. Contactați suportul dacă suma a fost debitată.
+                Could not verify the payment. Please contact support if the amount was charged.
               </p>
               <Button variant="outline" className="w-full" onClick={() => navigate('/pages/pricing')}>
-                Înapoi la Prețuri
+                Back to Pricing
               </Button>
             </>
           )}

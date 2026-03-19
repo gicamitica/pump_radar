@@ -136,13 +136,13 @@ async def send_verification_email(email: str, name: str, token: str):
     verify_url = f"{APP_URL}/auth/verify-email?token={token}"
     html = f"""
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
-      <h2 style="color:#6366f1">Bun venit la PumpRadar!</h2>
-      <p>Salut {name},</p>
-      <p>Verifică adresa ta de email pentru a activa contul:</p>
+      <h2 style="color:#6366f1">Welcome to PumpRadar!</h2>
+      <p>Hi {name},</p>
+      <p>Please verify your email address to activate your account:</p>
       <a href="{verify_url}" style="background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin:16px 0">
-        Verifică Email
+        Verify Email
       </a>
-      <p style="color:#666;font-size:14px">Link-ul expiră în 24 de ore.</p>
+      <p style="color:#666;font-size:14px">This link expires in 24 hours.</p>
     </div>"""
     try:
         await asyncio.to_thread(resend.Emails.send, {
@@ -158,12 +158,12 @@ async def send_reset_email(email: str, token: str):
     reset_url = f"{APP_URL}/auth/reset-password?token={token}"
     html = f"""
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
-      <h2 style="color:#6366f1">Resetare Parolă - PumpRadar</h2>
-      <p>Ai cerut resetarea parolei. Click pe link:</p>
+      <h2 style="color:#6366f1">Password Reset - PumpRadar</h2>
+      <p>You requested a password reset. Click the link below:</p>
       <a href="{reset_url}" style="background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin:16px 0">
-        Resetează Parola
+        Reset Password
       </a>
-      <p style="color:#666;font-size:14px">Link-ul expiră în 1 oră.</p>
+      <p style="color:#666;font-size:14px">This link expires in 1 hour.</p>
     </div>"""
     try:
         await asyncio.to_thread(resend.Emails.send, {
@@ -240,14 +240,14 @@ async def register(dto: RegisterDTO):
         "user": doc_to_user(user_doc),
         "accessToken": access_token,
         "refreshToken": refresh_token,
-        "message": "Cont creat! Verifică emailul pentru activare.",
+        "message": "Account created! Please check your email to verify.",
     })
 
 @app.post("/api/auth/login")
 async def login(dto: LoginDTO):
     user = await db.users.find_one({"email": dto.email.lower()})
     if not user or not verify_password(dto.password, user.get("password_hash", "")):
-        raise HTTPException(status_code=401, detail=api_err("Email sau parolă incorectă", "INVALID_CREDENTIALS"))
+        raise HTTPException(status_code=401, detail=api_err("Incorrect email or password", "INVALID_CREDENTIALS"))
     
     expire = timedelta(days=30) if dto.remember else timedelta(minutes=JWT_EXPIRE_MINUTES)
     access_token = create_token(str(user["_id"]), user["email"], expire)
@@ -271,7 +271,7 @@ async def forgot_password(dto: ForgotPasswordDTO):
         )
         asyncio.create_task(send_reset_email(dto.email, reset_token))
     
-    return api_ok({"message": "Dacă emailul există, vei primi instrucțiuni de resetare."})
+    return api_ok({"message": "If this email exists, you will receive reset instructions."})
 
 @app.post("/api/auth/reset-password")
 async def reset_password(dto: ResetPasswordDTO):
@@ -280,13 +280,13 @@ async def reset_password(dto: ResetPasswordDTO):
         "reset_token_expiry": {"$gt": datetime.now(timezone.utc)}
     })
     if not user:
-        raise HTTPException(status_code=400, detail=api_err("Token invalid sau expirat", "INVALID_TOKEN"))
+        raise HTTPException(status_code=400, detail=api_err("Invalid or expired token", "INVALID_TOKEN"))
     
     await db.users.update_one(
         {"_id": user["_id"]},
         {"$set": {"password_hash": hash_password(dto.password)}, "$unset": {"reset_token": "", "reset_token_expiry": ""}}
     )
-    return api_ok({"message": "Parola a fost resetată cu succes."})
+    return api_ok({"message": "Password has been reset successfully."})
 
 @app.post("/api/auth/verify-email")
 async def verify_email(dto: VerifyEmailDTO):
@@ -295,14 +295,14 @@ async def verify_email(dto: VerifyEmailDTO):
         "verify_token_expiry": {"$gt": datetime.now(timezone.utc)}
     })
     if not user:
-        raise HTTPException(status_code=400, detail=api_err("Token invalid sau expirat", "INVALID_TOKEN"))
+        raise HTTPException(status_code=400, detail=api_err("Invalid or expired token", "INVALID_TOKEN"))
     
     await db.users.update_one(
         {"_id": user["_id"]},
         {"$set": {"email_verified": True}, "$unset": {"verify_token": "", "verify_token_expiry": ""}}
     )
     user["email_verified"] = True
-    return api_ok({"message": "Email verificat cu succes!", "user": doc_to_user(user)})
+    return api_ok({"message": "Email verified successfully!", "user": doc_to_user(user)})
 
 @app.post("/api/auth/logout")
 async def logout(user=Depends(get_current_user)):
@@ -406,9 +406,10 @@ async def analyze_signals_with_ai(candidates: List[dict], fear_greed: dict = Non
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"crypto_analysis_{uuid.uuid4()}",
-            system_message="""Ești un expert în analiza piețelor crypto specializat în detectarea semnalelor pump/dump.
-Analizezi date de piață pentru a identifica oportunități și riscuri.
-Răspunzi EXCLUSIV în format JSON valid, fără text înainte sau după JSON."""
+            system_message="""You are an expert crypto market analyst specializing in pump/dump signal detection.
+You analyze market data to identify opportunities and risks.
+You MUST respond ONLY in valid JSON format, with no text before or after the JSON.
+All text in the response MUST be in English."""
         ).with_model("gemini", "gemini-2.5-flash")
         
         # Sort by most interesting metrics first
@@ -426,22 +427,22 @@ Răspunzi EXCLUSIV în format JSON valid, fără text înainte sau după JSON.""
             for c in interesting[:25]
         ])
         
-        prompt = f"""Analizează aceste monede crypto pentru semnale PUMP și DUMP.
+        prompt = f"""Analyze these cryptocurrencies for PUMP and DUMP signals.
 
-CONTEXT PIAȚĂ:
+MARKET CONTEXT:
 - Fear & Greed Index: {fg['value']}/100 ({fg['classification']})
-- Trending pe CoinGecko: {trending_str}
+- Trending on CoinGecko: {trending_str}
 
-DATE MONEDE (sortate după activitate):
+COIN DATA (sorted by activity):
 {data_str}
 
-Returnează JSON cu această structură exactă (fără text înainte/după):
+Return JSON with this exact structure (no text before/after). ALL TEXT MUST BE IN ENGLISH:
 {{
   "pump_signals": [
     {{
       "symbol": "BTC",
       "signal_strength": 85,
-      "reason": "Volum/mcap ridicat, momentum pozitiv 1h, trending pe CoinGecko",
+      "reason": "High volume/mcap ratio, positive 1h momentum, trending on CoinGecko",
       "confidence": "high",
       "risk_level": "medium"
     }}
@@ -450,18 +451,18 @@ Returnează JSON cu această structură exactă (fără text înainte/după):
     {{
       "symbol": "ETH",
       "signal_strength": 70,
-      "reason": "Presiune de vânzare, scădere 1h și 24h simultan",
+      "reason": "Selling pressure, simultaneous 1h and 24h decline",
       "confidence": "medium",
       "risk_level": "high"
     }}
   ],
-  "market_summary": "Fear & Greed la {fg['value']} ({fg['classification']}). Rezumat în 2 propoziții."
+  "market_summary": "Fear & Greed at {fg['value']} ({fg['classification']}). Brief 2-sentence market summary in English."
 }}
 
-Criterii PUMP: vol/mcap >5%, price_change_1h pozitiv, trending=YES, momentum crescător
-Criterii DUMP: price_change_1h și 24h ambele negative, vol/mcap crescut (presiune vânzare), scădere accelerată
+PUMP criteria: vol/mcap >5%, positive price_change_1h, trending=YES, increasing momentum
+DUMP criteria: both price_change_1h and 24h negative, high vol/mcap (selling pressure), accelerating decline
 
-Returnează maxim 10 pump signals și 5 dump signals, ordered by signal_strength DESC."""
+Return maximum 10 pump signals and 5 dump signals, ordered by signal_strength DESC."""
         
         response = await chat.send_message(UserMessage(text=prompt))
         
@@ -611,7 +612,7 @@ async def get_signals(user=Depends(get_optional_user)):
         return api_ok({
             "pump_signals": [],
             "dump_signals": [],
-            "market_summary": "Semnalele sunt procesate. Revino în câteva minute.",
+            "market_summary": "Signals are being processed. Please check back in a few minutes.",
             "last_updated": None,
             "coins_analyzed": 0,
         })
@@ -865,34 +866,34 @@ async def ai_chat(req: ChatRequest, user=Depends(get_optional_user)):
         dump_count = len(snapshot.get("dump_signals", [])) if snapshot else 0
         summary = snapshot.get("market_summary", "") if snapshot else ""
         
-        user_sub = "Trial Free"
+        user_sub = "Free Trial"
         if user:
             sub = user.get("subscription", "trial")
-            user_sub = "Pro Lunar" if sub == "monthly" else "Pro Anual" if sub == "annual" else "Trial Free"
+            user_sub = "Pro Monthly" if sub == "monthly" else "Pro Annual" if sub == "annual" else "Free Trial"
         
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"chat_{uuid.uuid4()}",
-            system_message=f"""Ești asistentul AI al platformei PumpRadar.
-PumpRadar este o platformă care analizează semnale crypto PUMP & DUMP folosind AI (Gemini), date din CoinGecko și LunarCrush.
+            system_message=f"""You are the AI assistant for the PumpRadar platform.
+PumpRadar is a platform that analyzes crypto PUMP & DUMP signals using AI (Gemini), data from CoinGecko and LunarCrush.
 
-CONTEXT CURENT:
-- Semnale PUMP active: {pump_count}
-- Semnale DUMP active: {dump_count}  
-- Rezumat piață: {summary}
-- Planuri disponibile: Trial (24h gratuit), Pro Lunar (€29.99/lună), Pro Anual (€199.99/an)
-- Utilizatorul curent: {f"autentificat - {user_sub}" if user else "neautentificat"}
+CURRENT CONTEXT:
+- Active PUMP signals: {pump_count}
+- Active DUMP signals: {dump_count}  
+- Market summary: {summary}
+- Available plans: Trial (24h free), Pro Monthly ($29.99/month), Pro Annual ($199.99/year)
+- Current user: {f"authenticated - {user_sub}" if user else "not authenticated"}
 
-Răspunzi ÎNTOTDEAUNA în română, ești prietenos și concis.
-Poți ajuta cu: explicații despre semnale crypto, cum funcționează platforma, planuri de abonament, sfaturi generale de trading (cu disclaimer că nu sunt sfaturi financiare).
-Nu faci predicții de preț garantate. Adaugi mereu disclaimer că semnalele nu sunt sfaturi financiare."""
+You ALWAYS respond in English, are friendly and concise.
+You can help with: explanations about crypto signals, how the platform works, subscription plans, general trading tips (with disclaimer that these are not financial advice).
+You do not make guaranteed price predictions. Always add disclaimer that signals are not financial advice."""
         ).with_model("gemini", "gemini-2.5-flash")
         
         response = await chat.send_message(UserMessage(text=req.message))
         return api_ok({"reply": response})
     except Exception as e:
         logger.error(f"AI chat error: {e}")
-        return api_ok({"reply": "Îmi pare rău, nu pot răspunde acum. Încearcă din nou în câteva momente."})
+        return api_ok({"reply": "Sorry, I cannot respond right now. Please try again in a few moments."})
 
 # ─────────────────────────────────────────────
 # COIN DETAIL
@@ -1008,25 +1009,25 @@ async def get_coin_detail(symbol: str, type: str = "pump", user=Depends(get_opti
             chat = LlmChat(
                 api_key=EMERGENT_LLM_KEY,
                 session_id=f"coin_detail_{uuid.uuid4()}",
-                system_message="Ești expert în analiza tehnică crypto. Răspunzi în română, concis și direct."
+                system_message="You are a crypto technical analysis expert. You respond in English, concisely and directly."
             ).with_model("gemini", "gemini-2.5-flash")
             
-            prompt = f"""Analizează detaliat {symbol} ({signal.get('name', symbol)}) ca semnal {'PUMP' if type == 'pump' else 'DUMP'}.
+            prompt = f"""Analyze {symbol} ({signal.get('name', symbol)}) in detail as a {'PUMP' if type == 'pump' else 'DUMP'} signal.
 
-Date:
-- Preț: ${price}
-- Schimbare 1h: {price_change_1h}%
-- Schimbare 24h: {price_change_24h}%
-- Schimbare 7d: {price_change_7d}%
-- Volum 24h: ${volume_24h:,.0f}
+Data:
+- Price: ${price}
+- 1h change: {price_change_1h}%
+- 24h change: {price_change_24h}%
+- 7d change: {price_change_7d}%
+- 24h volume: ${volume_24h:,.0f}
 - Market cap: ${market_cap:,.0f}
-- Putere semnal AI: {signal.get('signal_strength', 0)}%
-- Motiv inițial: {signal.get('reason', '')}
+- AI signal strength: {signal.get('signal_strength', 0)}%
+- Initial reason: {signal.get('reason', '')}
 
-Răspunde cu JSON:
+Respond with JSON (all text in English):
 {{
-  "analysis": "Analiză detaliată în 3-4 propoziții cu motivele tehnice specifice",
-  "trend": "Concluzie clară despre tendință și motivație în 2 propoziții, cu indicatori cheie"
+  "analysis": "Detailed analysis in 3-4 sentences with specific technical reasons",
+  "trend": "Clear conclusion about the trend and reasoning in 2 sentences, with key indicators"
 }}"""
             
             resp = await chat.send_message(UserMessage(text=prompt))
@@ -1039,11 +1040,11 @@ Răspunde cu JSON:
             trend_conclusion = detail_json.get("trend", "")
         except Exception as e:
             logger.error(f"Coin detail AI error: {e}")
-            ai_analysis = signal.get("reason", "Datele indică un semnal semnificativ.")
-            trend_conclusion = f"Tendința {'pozitivă' if type == 'pump' else 'negativă'} bazată pe volum și mișcarea prețului."
+            ai_analysis = signal.get("reason", "Data indicates a significant signal.")
+            trend_conclusion = f"{'Positive' if type == 'pump' else 'Negative'} trend based on volume and price movement."
     else:
-        ai_analysis = f"Nu există semnal activ pentru {symbol} în ultima oră de analiză."
-        trend_conclusion = "Monitorizează piața pentru semnale viitoare."
+        ai_analysis = f"No active signal for {symbol} in the last hour of analysis."
+        trend_conclusion = "Monitor the market for future signals."
     
     exchanges = get_coin_exchanges(symbol, coin_id)
     
@@ -1116,7 +1117,7 @@ async def make_admin(user_id: str, admin=Depends(require_admin)):
 # ─────────────────────────────────────────────
 @app.get("/api/home/dashboard")
 async def home_dashboard(user=Depends(get_current_user)):
-    """Home dashboard data for Katalyst's home module"""
+    """Home dashboard data for Katalyst home module"""
     u = doc_to_user(user)
     return api_ok({
         "user": {"name": u.get("name", "User"), "email": u["email"], "avatarUrl": None},

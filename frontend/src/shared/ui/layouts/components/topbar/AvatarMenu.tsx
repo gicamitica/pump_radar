@@ -39,11 +39,11 @@ const AvatarMenu: React.FC = () => {
 
   const menuEntries = React.useMemo<MenuEntry[]>(() => [
     { type: 'item', key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, onClick: () => navigate('/dashboard') },
-    { type: 'item', key: 'subscription', label: 'Abonament', icon: CreditCard, onClick: () => navigate('/pages/pricing') },
-    { type: 'item', key: 'ai-chat', label: 'AI Asistent', icon: MessageCircle, onClick: () => navigate('/ai-chat') },
+    { type: 'item', key: 'subscription', label: 'Subscription', icon: CreditCard, onClick: () => navigate('/pages/pricing') },
+    { type: 'item', key: 'ai-chat', label: 'AI Assistant', icon: MessageCircle, onClick: () => navigate('/ai-chat') },
     ...(isAdmin ? [{ type: 'item' as const, key: 'admin', label: 'Admin Panel', icon: Shield, onClick: () => navigate('/admin') }] : []),
     { type: 'separator', key: 'sep' },
-    { type: 'item', key: 'logout', label: 'Deconectare', icon: LogOut, onClick: handleLogout, variant: 'danger' as const },
+    { type: 'item', key: 'logout', label: 'Sign Out', icon: LogOut, onClick: handleLogout, variant: 'danger' as const },
   ], [navigate, handleLogout, isAdmin]);
 
   const initials = currentUser?.name
@@ -72,7 +72,7 @@ const AvatarMenu: React.FC = () => {
           <div className="text-sm font-semibold leading-tight">{currentUser?.name || 'User'}</div>
           <div className="text-xs text-muted-foreground">{currentUser?.email || ''}</div>
           <div className={`mt-1.5 inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full ${sub === 'monthly' || sub === 'annual' ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300' : 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300'}`}>
-            {sub === 'monthly' ? 'Pro Lunar' : sub === 'annual' ? 'Pro Anual' : 'Trial Free'}
+            {sub === 'monthly' ? 'Pro Monthly' : sub === 'annual' ? 'Pro Annual' : 'Free Trial'}
           </div>
         </div>
 

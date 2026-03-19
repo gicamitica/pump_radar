@@ -39,7 +39,7 @@ const SubscriptionBadge: React.FC = () => {
         data-testid="subscription-badge"
       >
         <Clock className={`h-3.5 w-3.5 transition-opacity ${pulse ? 'opacity-100' : 'opacity-40'}`} />
-        Trial Free
+        Free Trial
       </button>
     );
   }
@@ -51,7 +51,7 @@ const SubscriptionBadge: React.FC = () => {
       data-testid="subscription-badge-expired"
     >
       <Zap className="h-3.5 w-3.5" />
-      Upgradează Pro
+      Upgrade to Pro
     </button>
   );
 };

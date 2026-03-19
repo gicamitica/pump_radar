@@ -11,59 +11,59 @@ const getToken = () => localStorage.getItem('pumpradar_auth_token') || sessionSt
 const PLANS = [
   {
     id: 'trial',
-    name: 'Trial Gratuit',
+    name: 'Free Trial',
     price: 0,
-    period: '24 ore',
+    period: '24 hours',
     icon: <Zap className="h-6 w-6" />,
     color: 'text-emerald-500',
     bg: 'bg-emerald-100 dark:bg-emerald-950',
     features: [
-      'Primele 3 semnale PUMP',
-      'Primele 3 semnale DUMP',
-      'Rezumat AI zilnic',
-      'Acces 24 de ore',
+      'First 3 PUMP signals',
+      'First 3 DUMP signals',
+      'Daily AI summary',
+      '24 hour access',
     ],
-    cta: 'Activat la înregistrare',
+    cta: 'Activated on registration',
     disabled: true,
   },
   {
     id: 'monthly',
-    name: 'Pro Lunar',
+    name: 'Pro Monthly',
     price: 29.99,
-    period: '/lună',
+    period: '/month',
     icon: <Calendar className="h-6 w-6" />,
     color: 'text-blue-500',
     bg: 'bg-blue-100 dark:bg-blue-950',
     featured: true,
     badge: 'Popular',
     features: [
-      'Toate semnalele PUMP & DUMP',
-      'Analiză AI în timp real',
-      'Date LunarCrush + CoinGecko',
-      'Actualizare orară',
-      'Rezumat AI detaliat',
-      'Acces 30 de zile',
+      'All PUMP & DUMP signals',
+      'Real-time AI analysis',
+      'LunarCrush + CoinGecko data',
+      'Hourly updates',
+      'Detailed AI summary',
+      '30 day access',
     ],
-    cta: 'Abonare Lunar',
+    cta: 'Subscribe Monthly',
   },
   {
     id: 'annual',
-    name: 'Pro Anual',
+    name: 'Pro Annual',
     price: 199.99,
-    period: '/an',
+    period: '/year',
     icon: <Crown className="h-6 w-6" />,
     color: 'text-purple-500',
     bg: 'bg-purple-100 dark:bg-purple-950',
     badge: '-44%',
     badgeColor: 'bg-purple-500',
     features: [
-      'Tot ce include Pro Lunar',
-      'Economisești 160€/an',
-      'Acces 12 luni',
-      'Prioritate la noi funcții',
-      'Suport prioritar',
+      'Everything in Pro Monthly',
+      'Save $160/year',
+      '12 month access',
+      'Priority for new features',
+      'Priority support',
     ],
-    cta: 'Abonare Anual',
+    cta: 'Subscribe Annual',
   },
 ];
 
@@ -93,7 +93,7 @@ export default function SubscriptionPage() {
         window.location.href = res.data.data.url;
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Eroare la procesarea plății');
+      setError(err.response?.data?.detail || 'Error processing payment');
     } finally {
       setLoading(null);
     }
@@ -102,9 +102,9 @@ export default function SubscriptionPage() {
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-8" data-testid="subscription-page">
       <div className="text-center">
-        <h1 className="text-3xl font-bold mb-2">Alege Planul Tău</h1>
+        <h1 className="text-3xl font-bold mb-2">Choose Your Plan</h1>
         <p className="text-muted-foreground">
-          Acces la semnale AI Pump & Dump generate din date reale de piață
+          Access AI Pump & Dump signals generated from real market data
         </p>
       </div>
 
@@ -134,7 +134,7 @@ export default function SubscriptionPage() {
               </div>
               <CardTitle className="text-xl">{plan.name}</CardTitle>
               <div className="mt-2">
-                <span className="text-3xl font-bold">{plan.price === 0 ? 'Gratuit' : `€${plan.price}`}</span>
+                <span className="text-3xl font-bold">{plan.price === 0 ? 'Free' : `$${plan.price}`}</span>
                 <span className="text-muted-foreground text-sm">{plan.period}</span>
               </div>
             </CardHeader>
@@ -155,7 +155,7 @@ export default function SubscriptionPage() {
                 data-testid={`subscribe-btn-${plan.id}`}
               >
                 {loading === plan.id ? (
-                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Se procesează...</>
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</>
                 ) : plan.disabled ? (
                   <><Lock className="h-4 w-4 mr-2" />{plan.cta}</>
                 ) : (
@@ -168,7 +168,7 @@ export default function SubscriptionPage() {
       </div>
 
       <p className="text-center text-xs text-muted-foreground">
-        Plăți securizate prin Stripe. Anulați oricând. Prețuri în EUR.
+        Secure payments via Stripe. Cancel anytime. Prices in USD.
       </p>
     </div>
   );

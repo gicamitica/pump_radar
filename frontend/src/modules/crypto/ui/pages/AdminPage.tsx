@@ -8,7 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/shadcn/com
 import { Button } from '@/shared/ui/shadcn/components/ui/button';
 import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
 
-const getToken = () => localStorage.getItem('pumpradar_auth_token') || sessionStorage.getItem('pumpradar_auth_token');
+const getToken = () => {
+  const raw = localStorage.getItem('pumpradar_auth_token') || sessionStorage.getItem('pumpradar_auth_token');
+  if (!raw) return null;
+  try { const p = JSON.parse(raw); return typeof p === 'string' ? p : raw; } catch { return raw; }
+};
 
 interface UserEntry { id: string; email: string; name: string; subscription: string; emailVerified: boolean; createdAt: string; roles: string[]; }
 
@@ -24,7 +28,7 @@ export default function AdminPage() {
   if (!currentUser?.roles?.includes('admin')) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground" data-testid="admin-denied">
-        <div className="text-center"><Shield className="h-12 w-12 mx-auto mb-4 opacity-30" /><p>Acces restricționat - doar pentru administratori</p></div>
+        <div className="text-center"><Shield className="h-12 w-12 mx-auto mb-4 opacity-30" /><p>Restricted access - administrators only</p></div>
       </div>
     );
   }
@@ -41,7 +45,7 @@ export default function AdminPage() {
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
   const deleteUser = async (id: string) => {
-    if (!confirm('Ștergi utilizatorul?')) return;
+    if (!confirm('Delete this user?')) return;
     try {
       await axios.delete(`/api/admin/users/${id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
       setUsers(u => u.filter(x => x.id !== id));
@@ -70,15 +74,15 @@ export default function AdminPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Shield className="h-6 w-6 text-primary" />Admin Panel</h1>
-          <p className="text-muted-foreground text-sm">Gestionează utilizatorii și abonamentele</p>
+          <p className="text-muted-foreground text-sm">Manage users and subscriptions</p>
         </div>
         <Button variant="outline" size="sm" onClick={fetchUsers}><RefreshCw className="h-4 w-4 mr-2" />Refresh</Button>
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <Card><CardContent className="p-4 text-center"><div className="text-3xl font-bold">{users.length}</div><div className="text-xs text-muted-foreground">Total utilizatori</div></CardContent></Card>
-        <Card><CardContent className="p-4 text-center"><div className="text-3xl font-bold text-emerald-500">{users.filter(u => u.subscription === 'monthly' || u.subscription === 'annual').length}</div><div className="text-xs text-muted-foreground">Abonați Pro</div></CardContent></Card>
-        <Card><CardContent className="p-4 text-center"><div className="text-3xl font-bold text-amber-500">{users.filter(u => u.subscription === 'trial').length}</div><div className="text-xs text-muted-foreground">Trial activ</div></CardContent></Card>
+        <Card><CardContent className="p-4 text-center"><div className="text-3xl font-bold">{users.length}</div><div className="text-xs text-muted-foreground">Total Users</div></CardContent></Card>
+        <Card><CardContent className="p-4 text-center"><div className="text-3xl font-bold text-emerald-500">{users.filter(u => u.subscription === 'monthly' || u.subscription === 'annual').length}</div><div className="text-xs text-muted-foreground">Pro Subscribers</div></CardContent></Card>
+        <Card><CardContent className="p-4 text-center"><div className="text-3xl font-bold text-amber-500">{users.filter(u => u.subscription === 'trial').length}</div><div className="text-xs text-muted-foreground">Active Trials</div></CardContent></Card>
       </div>
 
       <Card>
@@ -86,13 +90,13 @@ export default function AdminPage() {
           <div className="flex items-center gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <input className="w-full pl-9 pr-4 py-2 text-sm border border-input rounded-lg bg-background" placeholder="Caută după email sau nume..." value={search} onChange={e => setSearch(e.target.value)} />
+              <input className="w-full pl-9 pr-4 py-2 text-sm border border-input rounded-lg bg-background" placeholder="Search by email or name..." value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-center py-8 text-muted-foreground"><RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />Se încarcă...</div>
+            <div className="text-center py-8 text-muted-foreground"><RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />Loading...</div>
           ) : (
             <div className="space-y-2">
               {filtered.map(user => (
@@ -118,7 +122,7 @@ export default function AdminPage() {
                   </div>
                 </div>
               ))}
-              {filtered.length === 0 && <div className="text-center py-8 text-muted-foreground">Nu există utilizatori</div>}
+              {filtered.length === 0 && <div className="text-center py-8 text-muted-foreground">No users found</div>}
             </div>
           )}
         </CardContent>
@@ -130,24 +134,24 @@ export default function AdminPage() {
           <Card className="w-full max-w-sm">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                Editează utilizator
+                Edit User
                 <Button variant="ghost" size="sm" onClick={() => setEditUser(null)}><X className="h-4 w-4" /></Button>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div><div className="text-sm font-medium mb-1">{editUser.email}</div><div className="text-xs text-muted-foreground">{editUser.name}</div></div>
               <div>
-                <label className="text-sm font-medium block mb-2">Abonament</label>
+                <label className="text-sm font-medium block mb-2">Subscription</label>
                 <select className="w-full border border-input rounded-lg px-3 py-2 text-sm bg-background" value={editSub} onChange={e => setEditSub(e.target.value)}>
                   <option value="trial">Trial</option>
-                  <option value="monthly">Pro Lunar</option>
-                  <option value="annual">Pro Anual</option>
+                  <option value="monthly">Pro Monthly</option>
+                  <option value="annual">Pro Annual</option>
                   <option value="free">Free</option>
                 </select>
               </div>
               <div className="flex gap-2">
-                <Button className="flex-1" onClick={updateSub}>Salvează</Button>
-                <Button variant="outline" className="flex-1" onClick={() => setEditUser(null)}>Anulează</Button>
+                <Button className="flex-1" onClick={updateSub}>Save</Button>
+                <Button variant="outline" className="flex-1" onClick={() => setEditUser(null)}>Cancel</Button>
               </div>
             </CardContent>
           </Card>

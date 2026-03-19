@@ -168,11 +168,12 @@ export const navigationSections: NavGroup[] = [
   {
     id: 'pumpradar',
     items: [
-      { id: 'dashboard', icon: 'bar-chart', to: '/dashboard', navRole: 'primary' },
-      { id: 'pump-signals', icon: 'zap', to: '/dashboard/pump', navRole: 'primary' },
-      { id: 'dump-signals', icon: 'alert-triangle', to: '/dashboard/dump', navRole: 'primary' },
-      { id: 'ai-chat', icon: 'message-circle', to: '/ai-chat', navRole: 'primary' },
-      { id: 'subscription', icon: 'layers', to: '/subscription', navRole: 'primary' },
+      { id: 'dashboard', icon: 'bar-chart', iconColor: 'blue', to: '/dashboard', navRole: 'primary' },
+      { id: 'pump-signals', icon: 'zap', iconColor: 'emerald', to: '/dashboard/pump', navRole: 'primary' },
+      { id: 'dump-signals', icon: 'alert-triangle', iconColor: 'rose', to: '/dashboard/dump', navRole: 'primary' },
+      { id: 'ai-chat', icon: 'message-circle', iconColor: 'purple', to: '/ai-chat', navRole: 'primary' },
+      { id: 'subscription', icon: 'layers', iconColor: 'amber', to: '/subscription', navRole: 'primary' },
+      { id: 'admin', icon: 'shield-check', iconColor: 'slate', to: '/admin', navRole: 'utility' },
     ],
   },
 ];

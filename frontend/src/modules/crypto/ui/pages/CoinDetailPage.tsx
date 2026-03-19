@@ -43,7 +43,7 @@ export default function CoinDetailPage() {
           headers: { Authorization: `Bearer ${getToken()}` },
         });
         if (res.data.success) setData(res.data.data);
-      } catch { setError('Nu s-au putut încărca datele pentru această monedă.'); }
+      } catch { setError('Could not load data for this coin.'); }
       finally { setLoading(false); }
     };
     fetch();
@@ -95,7 +95,7 @@ export default function CoinDetailPage() {
           { label: '1h', val: data.price_change_1h, pct: true },
           { label: '24h', val: data.price_change_24h, pct: true },
           { label: '7d', val: data.price_change_7d, pct: true },
-          { label: 'Volum 24h', val: data.volume_24h, pct: false },
+          { label: 'Volume 24h', val: data.volume_24h, pct: false },
         ].map(({ label, val, pct }) => (
           <Card key={label}><CardContent className="p-3 text-center">
             <div className="text-xs text-muted-foreground mb-1">{label}</div>
@@ -108,7 +108,7 @@ export default function CoinDetailPage() {
 
       {/* Chart */}
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5 text-primary" />Preț & Volum (Ultimeile 24h)</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5 text-primary" />Price & Volume (Last 24h)</CardTitle></CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={300}>
             <ComposedChart data={data.chart_data}>
@@ -118,8 +118,8 @@ export default function CoinDetailPage() {
               <YAxis yAxisId="vol" orientation="left" tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1e6).toFixed(0)}M`} />
               <Tooltip content={<CustomTooltip />} />
               <Legend />
-              <Bar yAxisId="vol" dataKey="volume" name="Volum" fill={isPump ? '#10b981' : '#ef4444'} opacity={0.4} />
-              <Line yAxisId="price" type="monotone" dataKey="price" name="Preț $" stroke="#6366f1" strokeWidth={2} dot={false} />
+              <Bar yAxisId="vol" dataKey="volume" name="Volume" fill={isPump ? '#10b981' : '#ef4444'} opacity={0.4} />
+              <Line yAxisId="price" type="monotone" dataKey="price" name="Price $" stroke="#6366f1" strokeWidth={2} dot={false} />
             </ComposedChart>
           </ResponsiveContainer>
         </CardContent>
@@ -127,33 +127,33 @@ export default function CoinDetailPage() {
 
       {/* AI Analysis */}
       <Card className="border-primary/20 bg-primary/5">
-        <CardHeader><CardTitle className="flex items-center gap-2"><Brain className="h-5 w-5 text-primary" />Analiză AI Detaliată</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2"><Brain className="h-5 w-5 text-primary" />Detailed AI Analysis</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-background rounded-lg p-3 text-center">
-              <div className="text-xs text-muted-foreground mb-1">Putere semnal</div>
+              <div className="text-xs text-muted-foreground mb-1">Signal Strength</div>
               <div className={`text-xl font-bold ${signalColor}`}>{data.signal_strength}%</div>
               <div className="h-2 bg-muted rounded-full mt-2 overflow-hidden">
                 <div className={`h-full rounded-full ${isPump ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${data.signal_strength}%` }} />
               </div>
             </div>
             <div className="bg-background rounded-lg p-3 text-center">
-              <div className="text-xs text-muted-foreground mb-1">Încredere</div>
-              <div className="text-xl font-bold capitalize">{data.confidence === 'high' ? 'Ridicată' : data.confidence === 'medium' ? 'Medie' : 'Scăzută'}</div>
+              <div className="text-xs text-muted-foreground mb-1">Confidence</div>
+              <div className="text-xl font-bold capitalize">{data.confidence === 'high' ? 'High' : data.confidence === 'medium' ? 'Medium' : 'Low'}</div>
             </div>
             <div className="bg-background rounded-lg p-3 text-center">
-              <div className="text-xs text-muted-foreground mb-1">Risc</div>
+              <div className="text-xs text-muted-foreground mb-1">Risk</div>
               <div className={`text-xl font-bold ${data.risk_level === 'low' ? 'text-emerald-500' : data.risk_level === 'medium' ? 'text-amber-500' : 'text-red-500'}`}>
-                {data.risk_level === 'low' ? 'Mic' : data.risk_level === 'medium' ? 'Mediu' : 'Mare'}
+                {data.risk_level === 'low' ? 'Low' : data.risk_level === 'medium' ? 'Medium' : 'High'}
               </div>
             </div>
           </div>
           <div>
-            <div className="text-sm font-semibold mb-2">Motive principale:</div>
+            <div className="text-sm font-semibold mb-2">Main Reasons:</div>
             <p className="text-sm leading-relaxed text-muted-foreground">{data.ai_analysis}</p>
           </div>
           <div className="bg-background rounded-xl p-4 border border-primary/10">
-            <div className="text-sm font-semibold text-primary mb-1">Concluzie & Tendință:</div>
+            <div className="text-sm font-semibold text-primary mb-1">Conclusion & Trend:</div>
             <p className="text-sm leading-relaxed">{data.trend_conclusion}</p>
           </div>
         </CardContent>
@@ -161,7 +161,7 @@ export default function CoinDetailPage() {
 
       {/* Exchanges */}
       <Card>
-        <CardHeader><CardTitle>Unde se tranzacționează {data.symbol}</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Where to Trade {data.symbol}</CardTitle></CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {data.exchanges.map(ex => (

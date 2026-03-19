@@ -3,7 +3,7 @@
 ## Overview
 PumpRadar este un dashboard AI pentru semnale crypto Pump & Dump, construit pe template-ul Katalyst (React + Tailwind admin template de pe ThemeForest).
 
-**URL Preview:** https://a580d9c6-1b10-4caa-81ba-c19407398a1c.preview.emergentagent.com
+**URL Preview:** https://pump-radar-3.preview.emergentagent.com
 
 ---
 

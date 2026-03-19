@@ -37,7 +37,7 @@ export const LayoutProvider: React.FC<LayoutProviderProps> = ({ children }) => {
     footerWidget: 'default',
     showUsage: false,
     showThemeToggler: true,
-    rightPanel: 'dual',
+    rightPanel: 'none',
     activeRightPanelTab: null,
   }), [config]);
 

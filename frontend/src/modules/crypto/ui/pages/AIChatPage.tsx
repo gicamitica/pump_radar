@@ -9,15 +9,15 @@ const getToken = () => localStorage.getItem('pumpradar_auth_token') || sessionSt
 interface Msg { role: 'user' | 'assistant'; text: string; ts: Date; }
 
 const SUGGESTIONS = [
-  'Ce este un semnal PUMP?',
-  'Cum funcționează AI-ul?',
-  'Care sunt diferențele între planuri?',
-  'Ce date folosește PumpRadar?',
+  'What is a PUMP signal?',
+  'How does the AI work?',
+  'What are the differences between plans?',
+  'What data does PumpRadar use?',
 ];
 
 export default function AIChatPage() {
   const [messages, setMessages] = useState<Msg[]>([
-    { role: 'assistant', text: 'Bună! Sunt asistentul AI al PumpRadar. Te pot ajuta cu întrebări despre semnale crypto, planuri de abonament, sau cum să folosești platforma. Cu ce te pot ajuta?', ts: new Date() }
+    { role: 'assistant', text: 'Hi! I am the PumpRadar AI assistant. I can help you with questions about crypto signals, subscription plans, or how to use the platform. How can I help you?', ts: new Date() }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -42,7 +42,7 @@ export default function AIChatPage() {
         setMessages(prev => [...prev, { role: 'assistant', text: res.data.data.reply, ts: new Date() }]);
       }
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', text: 'Îmi pare rău, a apărut o eroare. Încearcă din nou.', ts: new Date() }]);
+      setMessages(prev => [...prev, { role: 'assistant', text: 'Sorry, an error occurred. Please try again.', ts: new Date() }]);
     } finally {
       setLoading(false);
     }
@@ -57,10 +57,10 @@ export default function AIChatPage() {
         </div>
         <div>
           <h1 className="font-bold text-lg flex items-center gap-2">
-            AI Asistent PumpRadar
+            PumpRadar AI Assistant
             <Sparkles className="h-4 w-4 text-purple-400" />
           </h1>
-          <p className="text-xs text-muted-foreground">Răspunsuri instant despre piața crypto și platformă</p>
+          <p className="text-xs text-muted-foreground">Instant answers about the crypto market and platform</p>
         </div>
       </div>
 
@@ -106,7 +106,7 @@ export default function AIChatPage() {
       <div className="flex gap-2">
         <input
           className="flex-1 rounded-xl border border-input bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          placeholder="Scrie o întrebare..."
+          placeholder="Type a question..."
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send(input)}

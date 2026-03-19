@@ -1,170 +1,203 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { TrendingUp, TrendingDown, RefreshCw, Clock, Zap, AlertTriangle, Lock, BarChart3, Activity, Brain } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/shadcn/components/ui/card';
+import { TrendingUp, TrendingDown, RefreshCw, Clock, Zap, AlertTriangle, Lock, BarChart3, Activity, Sparkles, Brain, ExternalLink } from 'lucide-react';
+import { Card, CardContent } from '@/shared/ui/shadcn/components/ui/card';
 import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
 import { Button } from '@/shared/ui/shadcn/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/shadcn/components/ui/tabs';
-import { useNavigate } from 'react-router-dom';
 
 interface Signal {
-  symbol: string;
-  name: string;
-  signal_strength: number;
-  reason: string;
-  confidence: 'high' | 'medium' | 'low';
-  risk_level: 'low' | 'medium' | 'high';
-  price?: number;
-  price_change_1h?: number;
-  price_change_24h?: number;
-  volume_24h?: number;
-  social_volume?: number;
-  sentiment?: number;
-  galaxy_score?: number;
-  image?: string;
-  signal_type: 'pump' | 'dump';
+  symbol: string; name: string; signal_strength: number; reason: string;
+  confidence: 'high' | 'medium' | 'low'; risk_level: 'low' | 'medium' | 'high';
+  price?: number; price_change_1h?: number; price_change_24h?: number;
+  volume_24h?: number; social_volume?: number; sentiment?: number;
+  galaxy_score?: number; image?: string; signal_type: 'pump' | 'dump';
+  is_trending?: boolean;
 }
-
 interface SignalData {
-  pump_signals: Signal[];
-  dump_signals: Signal[];
-  market_summary: string;
-  last_updated: string | null;
-  coins_analyzed: number;
-  has_full_access: boolean;
+  pump_signals: Signal[]; dump_signals: Signal[]; market_summary: string;
+  last_updated: string | null; coins_analyzed: number; has_full_access: boolean;
+  fear_greed?: { value: number; classification: string }; trending?: string[];
 }
 
-const getToken = () => localStorage.getItem('pumpradar_auth_token') || sessionStorage.getItem('pumpradar_auth_token');
+const getToken = () => {
+  const raw = localStorage.getItem('pumpradar_auth_token') || sessionStorage.getItem('pumpradar_auth_token');
+  if (!raw) return null;
+  try { const p = JSON.parse(raw); return typeof p === 'string' ? p : raw; } catch { return raw; }
+};
 
-const confidenceColor = { high: 'bg-emerald-500', medium: 'bg-amber-500', low: 'bg-slate-400' };
-const confidenceBadge = { high: 'default', medium: 'secondary', low: 'outline' } as const;
+const confLabel = { high: 'Strong', medium: 'Medium', low: 'Weak' };
 const riskColor = { low: 'text-emerald-500', medium: 'text-amber-500', high: 'text-red-500' };
+const riskLabel = { low: 'Low', medium: 'Medium', high: 'High' };
 
-function SignalCard({ signal, blurred, index }: { signal: Signal; blurred: boolean; index: number }) {
+function SignalCard({ signal, blurred, onNavigate }: { signal: Signal; blurred: boolean; onNavigate: (url: string) => void }) {
   const isPump = signal.signal_type === 'pump';
   const detailUrl = `/coin/${signal.symbol}?type=${signal.signal_type}`;
 
-  const handleClick = () => {
-    if (!blurred) window.open(detailUrl, '_blank');
-  };
-
   return (
-    <Card
-      className={`relative overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${blurred ? 'select-none' : 'cursor-pointer'}`}
+    <div
+      className={`relative group overflow-hidden rounded-2xl border transition-all duration-300 ${blurred ? 'select-none cursor-default' : 'cursor-pointer hover:-translate-y-1 hover:shadow-xl'} ${isPump ? 'border-emerald-500/20 hover:border-emerald-500/40 bg-gradient-to-br from-emerald-950/30 via-background to-background' : 'border-red-500/20 hover:border-red-500/40 bg-gradient-to-br from-red-950/30 via-background to-background'}`}
       data-testid={`signal-card-${signal.symbol}`}
-      onClick={handleClick}
+      onClick={() => !blurred && onNavigate(detailUrl)}
     >
+      {/* Glow line top */}
+      <div className={`absolute top-0 left-0 right-0 h-0.5 ${isPump ? 'bg-gradient-to-r from-transparent via-emerald-500 to-transparent' : 'bg-gradient-to-r from-transparent via-red-500 to-transparent'}`} />
+
       {blurred && (
-        <div className="absolute inset-0 backdrop-blur-md bg-background/60 z-10 flex flex-col items-center justify-center gap-2">
+        <div className="absolute inset-0 backdrop-blur-md bg-background/70 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl">
           <Lock className="h-6 w-6 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground font-medium">Necesită abonament Pro</span>
+          <span className="text-sm text-muted-foreground font-medium">Pro subscription required</span>
         </div>
       )}
-      <div className={`absolute top-0 left-0 w-1 h-full ${isPump ? 'bg-emerald-500' : 'bg-red-500'}`} />
-      <CardContent className="p-4 pl-5">
-        <div className="flex items-start justify-between mb-3">
+
+      <div className="p-4">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
-            {signal.image ? (
-              <img src={signal.image} alt={signal.symbol} className="w-9 h-9 rounded-full" />
-            ) : (
-              <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
-                {signal.symbol.slice(0, 2)}
-              </div>
-            )}
+            {signal.image
+              ? <img src={signal.image} alt={signal.symbol} className="w-10 h-10 rounded-full ring-2 ring-border" />
+              : <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold ring-2 ring-border ${isPump ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{signal.symbol.slice(0, 2)}</div>
+            }
             <div>
-              <div className="font-bold text-base flex items-center gap-1">
-                {signal.symbol}
-                {!blurred && <span className="text-muted-foreground"><svg className="inline h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15,3 21,3 21,9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>}
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-base tracking-tight">{signal.symbol}</span>
+                {signal.is_trending && <span className="text-[10px] font-bold bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded-full">TRENDING</span>}
+                {!blurred && <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />}
               </div>
               <div className="text-xs text-muted-foreground">{signal.name}</div>
             </div>
           </div>
           <div className="flex flex-col items-end gap-1">
-            <Badge variant={confidenceBadge[signal.confidence]} className="text-xs">
-              {signal.confidence === 'high' ? 'Puternic' : signal.confidence === 'medium' ? 'Mediu' : 'Slab'}
-            </Badge>
-            <span className={`text-xs font-medium ${riskColor[signal.risk_level]}`}>
-              Risc: {signal.risk_level === 'low' ? 'Mic' : signal.risk_level === 'medium' ? 'Mediu' : 'Mare'}
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isPump ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
+              {isPump ? '▲ PUMP' : '▼ DUMP'}
             </span>
+            <span className={`text-xs font-medium ${riskColor[signal.risk_level]}`}>Risk: {riskLabel[signal.risk_level]}</span>
           </div>
         </div>
 
-        {/* Signal Strength Bar */}
+        {/* Signal Strength */}
         <div className="mb-3">
-          <div className="flex justify-between text-xs mb-1">
-            <span className="text-muted-foreground">Putere semnal</span>
-            <span className="font-semibold">{signal.signal_strength}%</span>
+          <div className="flex justify-between text-xs mb-1.5">
+            <span className="text-muted-foreground">Signal Strength</span>
+            <span className={`font-bold tabular-nums ${isPump ? 'text-emerald-400' : 'text-red-400'}`}>{signal.signal_strength}%</span>
           </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${isPump ? 'bg-emerald-500' : 'bg-red-500'}`}
+              className={`h-full rounded-full transition-all duration-700 ${isPump ? 'bg-gradient-to-r from-emerald-600 to-emerald-400' : 'bg-gradient-to-r from-red-600 to-red-400'}`}
               style={{ width: `${signal.signal_strength}%` }}
             />
           </div>
         </div>
 
         {/* AI Reason */}
-        <p className="text-sm text-muted-foreground mb-3 leading-relaxed">{signal.reason}</p>
+        <p className="text-xs text-muted-foreground mb-4 leading-relaxed line-clamp-2">{signal.reason}</p>
 
         {/* Metrics */}
-        <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="grid grid-cols-3 gap-2">
           {signal.price !== undefined && (
-            <div className="bg-muted/50 rounded-lg p-2">
-              <div className="text-xs text-muted-foreground">Preț</div>
-              <div className="text-sm font-semibold">
-                ${signal.price > 1 ? signal.price.toFixed(2) : signal.price.toFixed(6)}
-              </div>
+            <div className="bg-muted/40 rounded-lg p-2 text-center">
+              <div className="text-[10px] text-muted-foreground mb-0.5">Price</div>
+              <div className="text-xs font-bold tabular-nums">${signal.price > 1 ? signal.price.toFixed(2) : signal.price.toFixed(5)}</div>
             </div>
           )}
           {signal.price_change_1h !== undefined && (
-            <div className="bg-muted/50 rounded-lg p-2">
-              <div className="text-xs text-muted-foreground">1h</div>
-              <div className={`text-sm font-semibold ${signal.price_change_1h >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+            <div className="bg-muted/40 rounded-lg p-2 text-center">
+              <div className="text-[10px] text-muted-foreground mb-0.5">1h</div>
+              <div className={`text-xs font-bold tabular-nums ${signal.price_change_1h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {signal.price_change_1h >= 0 ? '+' : ''}{signal.price_change_1h?.toFixed(2)}%
               </div>
             </div>
           )}
           {signal.price_change_24h !== undefined && (
-            <div className="bg-muted/50 rounded-lg p-2">
-              <div className="text-xs text-muted-foreground">24h</div>
-              <div className={`text-sm font-semibold ${signal.price_change_24h >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+            <div className="bg-muted/40 rounded-lg p-2 text-center">
+              <div className="text-[10px] text-muted-foreground mb-0.5">24h</div>
+              <div className={`text-xs font-bold tabular-nums ${signal.price_change_24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {signal.price_change_24h >= 0 ? '+' : ''}{signal.price_change_24h?.toFixed(2)}%
               </div>
             </div>
           )}
-          {signal.social_volume !== undefined && signal.social_volume > 0 && (
-            <div className="bg-muted/50 rounded-lg p-2">
-              <div className="text-xs text-muted-foreground">Social Vol</div>
-              <div className="text-sm font-semibold">{signal.social_volume.toLocaleString()}</div>
-            </div>
-          )}
-          {signal.galaxy_score !== undefined && signal.galaxy_score > 0 && (
-            <div className="bg-muted/50 rounded-lg p-2">
-              <div className="text-xs text-muted-foreground">Galaxy</div>
-              <div className="text-sm font-semibold">{signal.galaxy_score}</div>
-            </div>
-          )}
-          {signal.sentiment !== undefined && signal.sentiment > 0 && (
-            <div className="bg-muted/50 rounded-lg p-2">
-              <div className="text-xs text-muted-foreground">Sentiment</div>
-              <div className="text-sm font-semibold">{signal.sentiment}%</div>
-            </div>
-          )}
         </div>
-      </CardContent>
-    </Card>
+
+        {/* Confidence footer */}
+        <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            <div className={`h-1.5 w-1.5 rounded-full ${signal.confidence === 'high' ? 'bg-emerald-400' : signal.confidence === 'medium' ? 'bg-amber-400' : 'bg-slate-400'}`} />
+            <span className="text-xs text-muted-foreground">{confLabel[signal.confidence]} confidence</span>
+          </div>
+          {!blurred && <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">Click for details →</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AISummaryCard({ data }: { data: SignalData }) {
+  const fg = data.fear_greed;
+  const fgColor = fg ? (fg.value < 25 ? '#ef4444' : fg.value < 45 ? '#f97316' : fg.value < 55 ? '#eab308' : fg.value < 75 ? '#22c55e' : '#10b981') : '#6366f1';
+  const trending = data.trending?.slice(0, 5) || [];
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/40 via-purple-950/20 to-background">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-8 -right-8 w-40 h-40 bg-indigo-500/10 rounded-full blur-3xl" />
+        <div className="absolute -bottom-8 -left-8 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl" />
+      </div>
+      <div className="relative p-4">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="flex-shrink-0 h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center shadow-lg">
+            <Sparkles className="h-4 w-4 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-xs font-black uppercase tracking-widest bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">AI Market Intelligence</span>
+            </div>
+            <p className="text-sm leading-relaxed text-foreground/90">{data.market_summary}</p>
+          </div>
+        </div>
+        {(fg || trending.length > 0) && (
+          <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-white/5">
+            {fg && (
+              <div className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-1.5">
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: fgColor }} />
+                <span className="text-xs font-semibold" style={{ color: fgColor }}>Fear & Greed {fg.value}</span>
+                <span className="text-xs text-muted-foreground">({fg.classification})</span>
+              </div>
+            )}
+            {trending.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">Trending:</span>
+                {trending.map(t => (
+                  <span key={t} className="text-xs font-semibold bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded-full">{t}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
 function EmptyState({ type }: { type: 'pump' | 'dump' }) {
   return (
     <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
-      <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${type === 'pump' ? 'bg-emerald-100 dark:bg-emerald-950' : 'bg-red-100 dark:bg-red-950'}`}>
+      <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-4 ${type === 'pump' ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
         {type === 'pump' ? <TrendingUp className="h-8 w-8 text-emerald-500" /> : <TrendingDown className="h-8 w-8 text-red-500" />}
       </div>
-      <h3 className="font-semibold mb-2">Nu există semnale {type === 'pump' ? 'PUMP' : 'DUMP'} momentan</h3>
-      <p className="text-muted-foreground text-sm">AI-ul analizează piața. Semnalele vor apărea în curând.</p>
+      <h3 className="font-semibold mb-1">No {type === 'pump' ? 'PUMP' : 'DUMP'} signals right now</h3>
+      <p className="text-muted-foreground text-sm">AI is analyzing the market. Signals will appear soon.</p>
+    </div>
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="animate-pulse rounded-2xl border border-border bg-muted/30 p-4 space-y-3">
+      <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-muted" /><div className="flex-1 space-y-2"><div className="h-4 bg-muted rounded w-20" /><div className="h-3 bg-muted rounded w-28" /></div></div>
+      <div className="h-1.5 bg-muted rounded-full" />
+      <div className="h-10 bg-muted rounded-xl" />
+      <div className="grid grid-cols-3 gap-2">{[1,2,3].map(i => <div key={i} className="h-12 bg-muted rounded-lg" />)}</div>
     </div>
   );
 }
@@ -174,11 +207,9 @@ export default function SignalsDashboard() {
   const navigate = useNavigate();
   const [data, setData] = useState<SignalData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [nextRefresh, setNextRefresh] = useState<number>(3600);
-  const [activeTab, setActiveTab] = useState<string>('pump');
+  const [activeTab, setActiveTab] = useState('pump');
 
-  // Determine tab from URL
   useEffect(() => {
     if (location.pathname.includes('dump')) setActiveTab('dump');
     else if (location.pathname.includes('history')) setActiveTab('history');
@@ -192,276 +223,113 @@ export default function SignalsDashboard() {
       const res = await axios.get('/api/crypto/signals', {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (res.data.success) {
-        setData(res.data.data);
-        setLastRefresh(new Date());
-        setNextRefresh(3600);
-      }
-    } catch (err) {
-      console.error('Failed to fetch signals:', err);
-    } finally {
-      setLoading(false);
-    }
+      if (res.data.success) { setData(res.data.data); setNextRefresh(3600); }
+    } catch {}
+    finally { setLoading(false); }
   }, []);
 
-  useEffect(() => {
-    fetchSignals();
-    const interval = setInterval(fetchSignals, 3600000); // Hourly
-    return () => clearInterval(interval);
-  }, [fetchSignals]);
+  useEffect(() => { fetchSignals(); const iv = setInterval(fetchSignals, 3600000); return () => clearInterval(iv); }, [fetchSignals]);
+  useEffect(() => { const t = setInterval(() => setNextRefresh(p => Math.max(0, p - 1)), 1000); return () => clearInterval(t); }, []);
 
-  // Countdown timer
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNextRefresh(prev => Math.max(0, prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+  const fmtTime = (ts: string | null) => ts ? new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
 
-  const formatCountdown = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const formatTime = (ts: string | null) => {
-    if (!ts) return 'N/A';
-    return new Date(ts).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const pumpSignals = data?.pump_signals || [];
-  const dumpSignals = data?.dump_signals || [];
+  const pump = data?.pump_signals || [];
+  const dump = data?.dump_signals || [];
   const hasAccess = data?.has_full_access !== false;
   const FREE_LIMIT = 3;
 
   return (
-    <div className="space-y-6 p-1" data-testid="signals-dashboard">
+    <div className="space-y-5" data-testid="signals-dashboard">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Brain className="h-6 w-6 text-primary" />
-            Semnale AI Crypto
+          <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+            <Brain className="h-5 w-5 text-primary" />
+            AI Crypto Signals
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Pump & Dump signals analizate de AI din LunarCrush + CoinGecko
-          </p>
+          <p className="text-muted-foreground text-sm">Pump & Dump detection powered by Gemini AI · LunarCrush + CoinGecko data</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 px-3 py-2 rounded-lg">
-            <Clock className="h-4 w-4" />
-            <span>Următor: {formatCountdown(nextRefresh)}</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-lg border border-border">
+            <Clock className="h-3.5 w-3.5" />Next update: {fmt(nextRefresh)}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchSignals}
-            disabled={loading}
-            data-testid="refresh-btn"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Actualizare
+          <Button variant="outline" size="sm" onClick={fetchSignals} disabled={loading} data-testid="refresh-btn">
+            <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />Refresh
           </Button>
         </div>
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center">
-                <TrendingUp className="h-5 w-5 text-emerald-500" />
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { icon: <TrendingUp className="h-4 w-4" />, value: pump.length, label: 'PUMP Signals', color: 'text-emerald-500', bg: 'bg-emerald-500/10', testid: 'pump-count' },
+          { icon: <TrendingDown className="h-4 w-4" />, value: dump.length, label: 'DUMP Signals', color: 'text-red-500', bg: 'bg-red-500/10', testid: 'dump-count' },
+          { icon: <BarChart3 className="h-4 w-4" />, value: data?.coins_analyzed || 0, label: 'Coins Analyzed', color: 'text-blue-500', bg: 'bg-blue-500/10', testid: 'coins-count' },
+          { icon: <Activity className="h-4 w-4" />, value: fmtTime(data?.last_updated || null), label: 'Last Update', color: 'text-purple-500', bg: 'bg-purple-500/10', testid: 'last-update' },
+        ].map(s => (
+          <Card key={s.label}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className={`h-9 w-9 rounded-xl ${s.bg} flex items-center justify-center ${s.color} flex-shrink-0`}>{s.icon}</div>
+                <div><div className={`text-xl font-bold tabular-nums ${s.color}`} data-testid={s.testid}>{s.value}</div><div className="text-xs text-muted-foreground">{s.label}</div></div>
               </div>
-              <div>
-                <div className="text-2xl font-bold text-emerald-500" data-testid="pump-count">{pumpSignals.length}</div>
-                <div className="text-xs text-muted-foreground">PUMP signals</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-red-100 dark:bg-red-950 flex items-center justify-center">
-                <TrendingDown className="h-5 w-5 text-red-500" />
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-red-500" data-testid="dump-count">{dumpSignals.length}</div>
-                <div className="text-xs text-muted-foreground">DUMP signals</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-950 flex items-center justify-center">
-                <BarChart3 className="h-5 w-5 text-blue-500" />
-              </div>
-              <div>
-                <div className="text-2xl font-bold">{data?.coins_analyzed || 0}</div>
-                <div className="text-xs text-muted-foreground">Monede analizate</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-purple-100 dark:bg-purple-950 flex items-center justify-center">
-                <Activity className="h-5 w-5 text-purple-500" />
-              </div>
-              <div>
-                <div className="text-sm font-bold">{formatTime(data?.last_updated || null)}</div>
-                <div className="text-xs text-muted-foreground">Ultima actualizare</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* AI Market Summary */}
-      {data?.market_summary && (
-        <Card className="border-primary/20 bg-primary/5">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Brain className="h-4 w-4 text-primary" />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-primary mb-1 uppercase tracking-wide">Rezumat AI</div>
-                <p className="text-sm leading-relaxed">{data.market_summary}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* AI Market Intelligence card */}
+      {data?.market_summary && <AISummaryCard data={data} />}
 
       {/* Upgrade Banner */}
       {!hasAccess && (
-        <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30">
-          <CardContent className="p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0" />
-              <div>
-                <p className="font-semibold text-sm">Trial expirat</p>
-                <p className="text-xs text-muted-foreground">Upgradează la Pro pentru acces complet la toate semnalele</p>
-              </div>
-            </div>
-            <Button size="sm" onClick={() => navigate('/pages/pricing')} data-testid="upgrade-btn">
-              <Zap className="h-4 w-4 mr-2" />
-              Upgradează la Pro
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0" />
+            <div><p className="font-semibold text-sm">Free Trial Expired</p><p className="text-xs text-muted-foreground">Upgrade to Pro for full access to all signals</p></div>
+          </div>
+          <Button size="sm" onClick={() => navigate('/pages/pricing')} data-testid="upgrade-btn">
+            <Zap className="h-4 w-4 mr-2" />Upgrade to Pro
+          </Button>
+        </div>
       )}
 
-      {/* Signals Tabs */}
+      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:grid-cols-3">
-          <TabsTrigger value="pump" data-testid="tab-pump" className="gap-2">
-            <TrendingUp className="h-4 w-4 text-emerald-500" />
-            PUMP ({pumpSignals.length})
+        <TabsList className="h-10">
+          <TabsTrigger value="pump" data-testid="tab-pump" className="gap-2 text-sm">
+            <TrendingUp className="h-4 w-4 text-emerald-500" />PUMP <span className="bg-emerald-500/15 text-emerald-500 text-xs font-bold px-1.5 rounded-full">{pump.length}</span>
           </TabsTrigger>
-          <TabsTrigger value="dump" data-testid="tab-dump" className="gap-2">
-            <TrendingDown className="h-4 w-4 text-red-500" />
-            DUMP ({dumpSignals.length})
+          <TabsTrigger value="dump" data-testid="tab-dump" className="gap-2 text-sm">
+            <TrendingDown className="h-4 w-4 text-red-500" />DUMP <span className="bg-red-500/15 text-red-500 text-xs font-bold px-1.5 rounded-full">{dump.length}</span>
           </TabsTrigger>
-          <TabsTrigger value="all" data-testid="tab-all">
-            Toate ({pumpSignals.length + dumpSignals.length})
+          <TabsTrigger value="all" data-testid="tab-all" className="text-sm">
+            All <span className="bg-muted text-muted-foreground text-xs font-bold px-1.5 rounded-full ml-1">{pump.length + dump.length}</span>
           </TabsTrigger>
         </TabsList>
 
-        {/* PUMP Tab */}
-        <TabsContent value="pump" className="mt-4">
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {[...Array(6)].map((_, i) => (
-                <Card key={i} className="animate-pulse">
-                  <CardContent className="p-4 space-y-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-muted" />
-                      <div className="flex-1 space-y-2">
-                        <div className="h-4 bg-muted rounded w-20" />
-                        <div className="h-3 bg-muted rounded w-32" />
-                      </div>
+        {(['pump', 'dump', 'all'] as const).map(tab => {
+          const signals = tab === 'pump' ? pump : tab === 'dump' ? dump : [...pump, ...dump];
+          return (
+            <TabsContent key={tab} value={tab} className="mt-4">
+              {loading
+                ? <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}</div>
+                : signals.length === 0
+                  ? <EmptyState type={tab === 'all' ? 'pump' : tab} />
+                  : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {signals.map((s, i) => <SignalCard key={`${s.signal_type}-${s.symbol}`} signal={s} blurred={!hasAccess && i >= FREE_LIMIT} onNavigate={navigate} />)}
                     </div>
-                    <div className="h-2 bg-muted rounded" />
-                    <div className="h-12 bg-muted rounded" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : pumpSignals.length === 0 ? (
-            <EmptyState type="pump" />
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {pumpSignals.map((signal, i) => (
-                <SignalCard key={signal.symbol} signal={signal} blurred={!hasAccess && i >= FREE_LIMIT} index={i} />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* DUMP Tab */}
-        <TabsContent value="dump" className="mt-4">
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {[...Array(3)].map((_, i) => (
-                <Card key={i} className="animate-pulse">
-                  <CardContent className="p-4 h-48 bg-muted rounded" />
-                </Card>
-              ))}
-            </div>
-          ) : dumpSignals.length === 0 ? (
-            <EmptyState type="dump" />
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {dumpSignals.map((signal, i) => (
-                <SignalCard key={signal.symbol} signal={signal} blurred={!hasAccess && i >= FREE_LIMIT} index={i} />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* ALL Tab */}
-        <TabsContent value="all" className="mt-4">
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {[...Array(6)].map((_, i) => (
-                <Card key={i} className="animate-pulse">
-                  <CardContent className="p-4 h-48 bg-muted rounded" />
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {[...pumpSignals, ...dumpSignals].length === 0 ? (
-                <div className="col-span-full text-center py-12 text-muted-foreground">
-                  Nu există semnale disponibile momentan
-                </div>
-              ) : (
-                [...pumpSignals, ...dumpSignals].map((signal, i) => (
-                  <SignalCard
-                    key={`${signal.signal_type}-${signal.symbol}`}
-                    signal={signal}
-                    blurred={!hasAccess && i >= FREE_LIMIT * 2}
-                    index={i}
-                  />
-                ))
-              )}
-            </div>
-          )}
-        </TabsContent>
+              }
+            </TabsContent>
+          );
+        })}
       </Tabs>
 
-      {/* Disclaimer */}
-      <div className="text-xs text-muted-foreground text-center pb-4 border-t pt-4">
-        <AlertTriangle className="inline-block h-3 w-3 mr-1" />
-        Semnalele sunt generate de AI pe baza datelor de piață și sociale. Nu constituie sfaturi financiare.
-        Investiți responsabil.
-      </div>
+      <p className="text-xs text-muted-foreground text-center pb-2 flex items-center justify-center gap-1">
+        <AlertTriangle className="h-3 w-3" />
+        Signals are AI-generated from market data. Not financial advice. Invest responsibly.
+      </p>
     </div>
   );
 }
