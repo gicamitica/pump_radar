@@ -61,6 +61,8 @@
     "dashboard": "Signals Dashboard",
     "pump-signals": "PUMP Signals",
     "dump-signals": "DUMP Signals",
+    "history": "Signal History",
+    "watchlist": "My Watchlist",
     "subscription": "Subscription",
     "ai-chat": "AI Assistant",
     "admin": "Admin Panel"

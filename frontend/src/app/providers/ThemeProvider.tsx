@@ -6,8 +6,8 @@ export const ThemeProvider: React.FC<PropsWithChildren> = ({ children }) => {
   return (
     <NextThemesProvider
       attribute="class"
-      defaultTheme="system"
-      enableSystem
+      defaultTheme="dark"
+      enableSystem={false}
       disableTransitionOnChange
       storageKey="katalyst_theme"
     >

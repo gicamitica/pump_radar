@@ -868,6 +868,9 @@ async def fetch_and_store_signals():
             }
             await db.signal_snapshots.insert_one(snapshot)
             
+            # Send email alerts for strong signals
+            asyncio.create_task(check_and_send_alerts(pump_signals, dump_signals))
+            
             # Keep only last 48 snapshots
             count = await db.signal_snapshots.count_documents({})
             if count > 48:
@@ -976,6 +979,198 @@ async def get_history(limit: int = 24, user=Depends(get_current_user)):
         })
     
     return api_ok({"history": result})
+
+@app.get("/api/crypto/snapshots")
+async def get_snapshots(limit: int = 24, user=Depends(get_optional_user)):
+    """Get detailed signal snapshots for timeline view"""
+    snapshots = await db.signal_snapshots.find({}).sort("timestamp", -1).limit(limit).to_list(length=limit)
+    
+    result = []
+    for snap in snapshots:
+        snap.pop("_id", None)
+        if isinstance(snap.get("timestamp"), datetime):
+            snap["timestamp"] = snap["timestamp"].isoformat()
+        # Serialize signals
+        for s in snap.get("pump_signals", []):
+            if isinstance(s.get("timestamp"), datetime):
+                s["timestamp"] = s["timestamp"].isoformat()
+        for s in snap.get("dump_signals", []):
+            if isinstance(s.get("timestamp"), datetime):
+                s["timestamp"] = s["timestamp"].isoformat()
+        result.append(snap)
+    
+    return api_ok({"snapshots": result})
+
+# ─────────────────────────────────────────────
+# WATCHLIST & ALERTS
+# ─────────────────────────────────────────────
+class WatchlistItem(BaseModel):
+    symbol: str
+    alertEnabled: bool = False
+    alertThreshold: int = 80
+
+class WatchlistUpdate(BaseModel):
+    items: List[WatchlistItem]
+
+@app.get("/api/user/watchlist")
+async def get_watchlist(user=Depends(get_current_user)):
+    """Get user's watchlist"""
+    watchlist = user.get("watchlist", [])
+    return api_ok({"watchlist": watchlist})
+
+@app.post("/api/user/watchlist")
+async def update_watchlist(data: WatchlistUpdate, user=Depends(get_current_user)):
+    """Update user's watchlist"""
+    watchlist_data = [item.dict() for item in data.items]
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"watchlist": watchlist_data}}
+    )
+    return api_ok({"message": "Watchlist updated", "watchlist": watchlist_data})
+
+@app.post("/api/user/watchlist/add")
+async def add_to_watchlist(item: WatchlistItem, user=Depends(get_current_user)):
+    """Add coin to watchlist"""
+    watchlist = user.get("watchlist", [])
+    # Check if already exists
+    if any(w.get("symbol") == item.symbol.upper() for w in watchlist):
+        return api_ok({"message": "Already in watchlist", "watchlist": watchlist})
+    
+    new_item = {
+        "symbol": item.symbol.upper(),
+        "alertEnabled": item.alertEnabled,
+        "alertThreshold": item.alertThreshold,
+        "addedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    watchlist.append(new_item)
+    
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"watchlist": watchlist}}
+    )
+    return api_ok({"message": f"Added {item.symbol} to watchlist", "watchlist": watchlist})
+
+@app.delete("/api/user/watchlist/{symbol}")
+async def remove_from_watchlist(symbol: str, user=Depends(get_current_user)):
+    """Remove coin from watchlist"""
+    watchlist = user.get("watchlist", [])
+    watchlist = [w for w in watchlist if w.get("symbol") != symbol.upper()]
+    
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"watchlist": watchlist}}
+    )
+    return api_ok({"message": f"Removed {symbol} from watchlist", "watchlist": watchlist})
+
+# ─────────────────────────────────────────────
+# EMAIL ALERTS FOR STRONG SIGNALS
+# ─────────────────────────────────────────────
+async def send_signal_alert_email(email: str, name: str, signal: dict, signal_type: str):
+    """Send email alert for strong signals"""
+    html = f"""
+    <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#0f172a;color:#fff;border-radius:12px">
+      <h2 style="color:{'#10b981' if signal_type == 'pump' else '#ef4444'};margin-bottom:16px">
+        {'🚀 PUMP' if signal_type == 'pump' else '📉 DUMP'} Alert: {signal.get('symbol')}
+      </h2>
+      <p>Hi {name},</p>
+      <p>A strong {signal_type.upper()} signal has been detected:</p>
+      <div style="background:#1e293b;padding:16px;border-radius:8px;margin:16px 0">
+        <p style="margin:0 0 8px 0"><strong>Coin:</strong> {signal.get('symbol')} ({signal.get('name', '')})</p>
+        <p style="margin:0 0 8px 0"><strong>Signal Strength:</strong> <span style="color:{'#10b981' if signal_type == 'pump' else '#ef4444'};font-size:18px">{signal.get('signal_strength', 0)}%</span></p>
+        <p style="margin:0 0 8px 0"><strong>Price:</strong> ${signal.get('price', 0)}</p>
+        <p style="margin:0 0 8px 0"><strong>1h Change:</strong> {signal.get('price_change_1h', 0):+.2f}%</p>
+        <p style="margin:0"><strong>Reason:</strong> {signal.get('reason', '')[:200]}</p>
+      </div>
+      <p style="color:#94a3b8;font-size:12px">This is not financial advice. Always do your own research.</p>
+      <a href="{APP_URL}/coin/{signal.get('symbol')}?type={signal_type}" 
+         style="display:inline-block;background:{'#10b981' if signal_type == 'pump' else '#ef4444'};color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:16px">
+        View Details
+      </a>
+    </div>"""
+    try:
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": f"PumpRadar Alerts <{SENDER_EMAIL}>",
+            "to": [email],
+            "subject": f"{'🚀' if signal_type == 'pump' else '📉'} {signal_type.upper()} Alert: {signal.get('symbol')} ({signal.get('signal_strength')}%)",
+            "html": html,
+        })
+        logger.info(f"Alert email sent to {email} for {signal.get('symbol')}")
+    except Exception as e:
+        logger.error(f"Alert email error: {e}")
+
+async def check_and_send_alerts(pump_signals: List[dict], dump_signals: List[dict]):
+    """Check for strong signals and send alerts to users with enabled notifications"""
+    # Get users with alert enabled (Pro subscribers)
+    pro_users = await db.users.find({
+        "subscription": {"$in": ["monthly", "annual"]},
+        "email_alerts_enabled": True,
+    }).to_list(length=1000)
+    
+    if not pro_users:
+        return
+    
+    # Get strong signals (>= 85% strength)
+    strong_pumps = [s for s in pump_signals if s.get("signal_strength", 0) >= 85]
+    strong_dumps = [s for s in dump_signals if s.get("signal_strength", 0) >= 85]
+    
+    for user in pro_users:
+        email = user.get("email")
+        name = user.get("name", "Trader")
+        watchlist = user.get("watchlist", [])
+        
+        # Check watchlist alerts
+        for item in watchlist:
+            if not item.get("alertEnabled"):
+                continue
+            symbol = item.get("symbol", "").upper()
+            threshold = item.get("alertThreshold", 80)
+            
+            # Check pumps
+            for signal in pump_signals:
+                if signal.get("symbol", "").upper() == symbol and signal.get("signal_strength", 0) >= threshold:
+                    asyncio.create_task(send_signal_alert_email(email, name, signal, "pump"))
+            
+            # Check dumps
+            for signal in dump_signals:
+                if signal.get("symbol", "").upper() == symbol and signal.get("signal_strength", 0) >= threshold:
+                    asyncio.create_task(send_signal_alert_email(email, name, signal, "dump"))
+        
+        # Send alerts for any very strong signal (>= 85%) if user has global alerts enabled
+        if user.get("global_alerts_enabled"):
+            for signal in strong_pumps[:3]:  # Max 3 alerts
+                asyncio.create_task(send_signal_alert_email(email, name, signal, "pump"))
+            for signal in strong_dumps[:2]:  # Max 2 alerts
+                asyncio.create_task(send_signal_alert_email(email, name, signal, "dump"))
+
+# Alert settings endpoints
+class AlertSettings(BaseModel):
+    email_alerts_enabled: bool = False
+    global_alerts_enabled: bool = False
+
+@app.get("/api/user/alerts")
+async def get_alert_settings(user=Depends(get_current_user)):
+    """Get user's alert settings"""
+    return api_ok({
+        "email_alerts_enabled": user.get("email_alerts_enabled", False),
+        "global_alerts_enabled": user.get("global_alerts_enabled", False),
+    })
+
+@app.post("/api/user/alerts")
+async def update_alert_settings(settings: AlertSettings, user=Depends(get_current_user)):
+    """Update user's alert settings"""
+    # Only Pro users can enable alerts
+    sub = user.get("subscription", "free")
+    if sub not in ("monthly", "annual"):
+        raise HTTPException(status_code=402, detail=api_err("Pro subscription required for email alerts", "SUBSCRIPTION_REQUIRED"))
+    
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {
+            "email_alerts_enabled": settings.email_alerts_enabled,
+            "global_alerts_enabled": settings.global_alerts_enabled,
+        }}
+    )
+    return api_ok({"message": "Alert settings updated"})
 
 @app.post("/api/crypto/refresh")
 async def manual_refresh(background_tasks: BackgroundTasks, user=Depends(get_current_user)):
