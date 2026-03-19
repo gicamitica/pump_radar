@@ -1,0 +1,73 @@
+{
+  "appName": "Katalyst Admin",
+  "ok": "OK",
+  "cancel": "Cancel",
+  "save": "Save",
+  "done": "Done",
+  "loading": "Loading...",
+  "tour": {
+    "previous": "Previous",
+    "next": "Next",
+    "finish": "Finish"
+  },
+  "async": {
+    "errorTitle": "Something went wrong",
+    "errorDescription": "An unexpected error occurred. Please try again.",
+    "emptyTitle": "No data found",
+    "emptyDescription": "There are no items to display.",
+    "successTitle": "Success",
+    "notFoundTitle": "Not Found",
+    "notFoundDescription": "The resource you are looking for does not exist.",
+    "retry": "Try Again",
+    "goHome": "Go Home"
+  },
+  "actions": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "save_changes": "Save Changes",
+    "update": "Update",
+    "update_account": "Update Account",
+    "reset_to_default": "Reset to Default",
+    "save_preferences": "Save Preferences",
+    "delete": "Delete"
+  },
+  "table": {
+    "search": "Search…",
+    "select": "Select…",
+    "columns": "Columns",
+    "actions": "Actions",
+    "exportCsv": "Export CSV",
+    "noResults": "No results found",
+    "error": "Failed to load data",
+    "loading": "Loading...",
+    "selectAll": "Select all",
+    "selectRow": "Select row {{n}}",
+    "rows_per_page": "Rows per page"
+  },
+  "topbar": {
+    "openMenu": "Open menu",
+    "search": "[CTRL + K]",
+    "languages": "Languages",
+    "selectLanguage": "Select Language",
+    "notifications": "Notifications",
+    "notificationsTitle": "Notifications",
+    "tab": {
+      "all": "All",
+      "following": "Following",
+      "archive": "Archive"
+    },
+    "reply": "Reply",
+    "view": "View",
+    "markAllRead": "Mark all as read",
+    "viewAll": "View all notifications",
+    "account": "Account",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System",
+    "yourShop": "Your Shop",
+    "docs": "Documentation",
+    "affiliate": "Affiliate",
+    "settings": "Settings",
+    "logout": "Log out"
+  }
+}

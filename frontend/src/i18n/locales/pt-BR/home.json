@@ -1,0 +1,123 @@
+{
+  "title": "Centro de Controle Administrativo",
+  "welcome": {
+    "greeting": "Bem-vindo de volta, {{name}}!",
+    "usersCount": "{{count}} usuários",
+    "teamsCount": "{{count}} equipes",
+    "users": "usuários",
+    "teams": "equipes",
+    "takeTour": "Faça um tour",
+    "retakeTour": "Refazer tour"
+  },
+  "stats": {
+    "totalUsers": "Total de Usuários",
+    "activeUsers": "Usuários Ativos",
+    "pendingInvitations": "Convites Pendentes",
+    "activeTeams": "Equipes Ativas",
+    "viewAll": "Ver tudo"
+  },
+  "checklist": {
+    "title": "Primeiros Passos",
+    "progress": "{{completed}} de {{total}} concluídos",
+    "showMe": "Mostre-me",
+    "goTo": "Ir para",
+    "items": {
+      "inviteUsers": {
+        "title": "Convidar usuários",
+        "description": "Adicione membros da equipe ao seu workspace"
+      },
+      "createTeam": {
+        "title": "Criar uma equipe",
+        "description": "Organize usuários em equipes"
+      },
+      "configureEmail": {
+        "title": "Configurar modelos de e-mail",
+        "description": "Configure e-mails de notificação"
+      },
+      "reviewNotifications": {
+        "title": "Revisar notificações",
+        "description": "Configure preferências de notificação"
+      },
+      "exploreApps": {
+        "title": "Explorar apps",
+        "description": "Descubra aplicativos disponíveis"
+      }
+    }
+  },
+  "quickActions": {
+    "title": "Ações Rápidas",
+    "inviteUser": "Convidar Usuário",
+    "createTeam": "Criar Equipe",
+    "emailNotifications": "E-mail e Notificações",
+    "activityLog": "Registro de Atividade",
+    "calendar": "Calendário"
+  },
+  "activity": {
+    "title": "Atividade Recente",
+    "viewAll": "Ver tudo",
+    "empty": "Nenhuma atividade recente",
+    "actions": {
+      "user.created": "convidou",
+      "user.role.changed": "alterou o cargo de",
+      "team.created": "criou a equipe",
+      "team.member.added": "adicionou membro a",
+      "notification.sent": "enviou notificação",
+      "app.accessed": "acessou"
+    }
+  },
+  "apps": {
+    "title": "Apps e Módulos"
+  },
+  "tour": {
+    "consent": {
+      "title": "Faça um tour rápido?",
+      "description": "Aprenda a navegar no Katalyst em menos de 2 minutos.",
+      "features": {
+        "navigation": "Navegue pela barra lateral e seções principais",
+        "modules": "Descubra principais módulos e recursos",
+        "shortcuts": "Aprenda atalhos de teclado úteis"
+      },
+      "duration": "Leva cerca de 1-2 minutos",
+      "start": "Iniciar Tour",
+      "skip": "Pular por enquanto"
+    },
+    "steps": {
+      "sidebar": {
+        "title": "Navegação na Barra Lateral",
+        "content": "Use a barra lateral para navegar entre as diferentes seções do painel administrativo."
+      },
+      "home": {
+        "title": "Painel Inicial",
+        "content": "Este é o seu centro de controle. Veja estatísticas, atividades recentes e ações rápidas."
+      },
+      "users": {
+        "title": "Gestão de Usuários",
+        "content": "Gerencie contas de usuários, cargos e permissões aqui."
+      },
+      "teams": {
+        "title": "Gestão de Equipes",
+        "content": "Organize usuários em equipes e gerencie configurações de equipe."
+      },
+      "email": {
+        "title": "E-mail e Notificações",
+        "content": "Configure modelos de e-mail e preferências de notificação."
+      },
+      "apps": {
+        "title": "Seção de Apps",
+        "content": "Acesse vários aplicativos como Calendário, Kanban e Chat."
+      },
+      "userMenu": {
+        "title": "Menu do Usuário",
+        "content": "Acesse seu perfil, configurações e saia daqui."
+      },
+      "help": {
+        "title": "Ajuda e Suporte",
+        "content": "Precisa de ajuda? Acesse documentação e suporte aqui. Você também pode reiniciar este tour a qualquer momento."
+      }
+    }
+  },
+  "errors": {
+    "loadFailed": "Falha ao carregar o painel",
+    "loadFailedDescription": "Houve um erro ao carregar o painel. Por favor, tente novamente mais tarde."
+  }
+}

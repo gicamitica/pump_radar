@@ -1,0 +1,44 @@
+{
+  "vertical": {
+    "boxed": {
+      "title": "Menu em Caixa",
+      "description": "Layout flutuante com margens e contêineres arredondados"
+    },
+    "edge": {
+      "title": "Menu de Borda",
+      "description": "Barra lateral de altura total com conteúdo de ponta a ponta"
+    },
+    "doubleSidebar": {
+      "title": "Menu Dupla",
+      "description": "Trilho de ícones com painel secundário contextual"
+    }
+  },
+  "horizontal": {
+    "solid": {
+      "title": "Horizontal Sólido",
+      "description": "Barra de navegação única com fundo sólido"
+    },
+    "dark": {
+      "title": "Horizontal Escuro",
+      "description": "Barra de navegação escura independentemente do tema"
+    },
+    "gradient": {
+      "title": "Horizontal Gradiente",
+      "description": "Barra de navegação com fundo gradiente"
+    },
+    "hero": {
+      "title": "Horizontal Hero",
+      "description": "Fundo Hero com sobreposição de conteúdo"
+    },
+    "stacked": {
+      "title": "Horizontal Empilhado",
+      "description": "Duas barras: barra de utilitários + barra de navegação"
+    }
+  },
+  "selector": {
+    "title": "Estilo de Layout",
+    "description": "Escolha seu estilo de layout preferido. As alterações são aplicadas instantaneamente.",
+    "tip": "Dica:",
+    "tipText": "Sua preferência de layout é salva automaticamente e persistirá entre as sessões."
+  }
+}

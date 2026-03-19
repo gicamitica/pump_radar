@@ -1,0 +1,55 @@
+{
+  "command": {
+    "placeholder": "Buscar o escribir un comando..."
+  },
+  "focus": {
+    "title": "Enfoque de Hoy",
+    "empty": "Nada en qué enfocarse hoy",
+    "view": "Ver"
+  },
+  "activity": {
+    "title": "Actividad Reciente",
+    "empty": "Sin actividad reciente",
+    "loadMore": "Cargar más",
+    "loading": "Cargando..."
+  },
+  "recentModules": {
+    "title": "Usados Recientemente",
+    "empty": "Sin módulos recientes"
+  },
+  "shortcuts": {
+    "title": "Atajos",
+    "favorites": "Favoritos",
+    "all": "Todos los Atajos",
+    "hint": "Presiona ? para ver todos los atajos de teclado"
+  },
+  "powerTips": {
+    "trigger": "Consejos Pro",
+    "steps": {
+      "command": {
+        "title": "Centro de Comandos",
+        "content": "Usa Ctrl+K para buscar y ejecutar comandos rápidamente. Escribe para filtrar acciones o navegar a cualquier módulo."
+      },
+      "focus": {
+        "title": "Enfoque de Hoy",
+        "content": "Ve lo que necesita tu atención hoy - invitaciones pendientes, eventos próximos y tareas por vencer."
+      },
+      "activity": {
+        "title": "Flujo de Actividad",
+        "content": "Rastrea toda la actividad del sistema en tiempo real. Haz clic en cualquier elemento para ver detalles."
+      },
+      "modules": {
+        "title": "Módulos Recientes",
+        "content": "Acceso rápido a tus módulos más visitados. Un clic para volver."
+      },
+      "shortcuts": {
+        "title": "Atajos de Teclado",
+        "content": "Marca tus atajos favoritos para referencia rápida. Presiona ? en cualquier momento para ver todos los atajos."
+      }
+    }
+  },
+  "errors": {
+    "loadFailed": "Error al cargar el hub de actividad",
+    "loadFailedDescription": "Hubo un error al cargar el hub de actividad. Por favor, inténtalo de nuevo más tarde."
+  }
+}

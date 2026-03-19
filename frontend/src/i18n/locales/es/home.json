@@ -1,0 +1,123 @@
+{
+  "title": "Centro de Control",
+  "welcome": {
+    "greeting": "¡Bienvenido, {{name}}!",
+    "usersCount": "{{count}} usuarios",
+    "teamsCount": "{{count}} equipos",
+    "users": "usuarios",
+    "teams": "equipos",
+    "takeTour": "Hacer un tour",
+    "retakeTour": "Repetir tour"
+  },
+  "stats": {
+    "totalUsers": "Total de Usuarios",
+    "activeUsers": "Usuarios Activos",
+    "pendingInvitations": "Invitaciones Pendientes",
+    "activeTeams": "Equipos Activos",
+    "viewAll": "Ver todos"
+  },
+  "checklist": {
+    "title": "Primeros Pasos",
+    "progress": "{{completed}} de {{total}} completados",
+    "showMe": "Mostrar",
+    "goTo": "Ir a",
+    "items": {
+      "inviteUsers": {
+        "title": "Invitar usuarios",
+        "description": "Añade miembros del equipo a tu espacio de trabajo"
+      },
+      "createTeam": {
+        "title": "Crear un equipo",
+        "description": "Organiza usuarios en equipos"
+      },
+      "configureEmail": {
+        "title": "Configurar plantillas de correo",
+        "description": "Configura los correos de notificación"
+      },
+      "reviewNotifications": {
+        "title": "Revisar notificaciones",
+        "description": "Configura las preferencias de notificación"
+      },
+      "exploreApps": {
+        "title": "Explorar aplicaciones",
+        "description": "Descubre las aplicaciones disponibles"
+      }
+    }
+  },
+  "quickActions": {
+    "title": "Acciones Rápidas",
+    "inviteUser": "Invitar Usuario",
+    "createTeam": "Crear Equipo",
+    "emailNotifications": "Correo y Notificaciones",
+    "activityLog": "Registro de Actividad",
+    "calendar": "Calendario"
+  },
+  "activity": {
+    "title": "Actividad Reciente",
+    "viewAll": "Ver todo",
+    "empty": "Sin actividad reciente",
+    "actions": {
+      "user.created": "invitó a",
+      "user.role.changed": "cambió el rol de",
+      "team.created": "creó el equipo",
+      "team.member.added": "añadió miembro a",
+      "notification.sent": "envió notificación",
+      "app.accessed": "accedió a"
+    }
+  },
+  "apps": {
+    "title": "Apps y Módulos"
+  },
+  "tour": {
+    "consent": {
+      "title": "¿Hacer un tour rápido?",
+      "description": "Aprende a navegar Katalyst en menos de 2 minutos.",
+      "features": {
+        "navigation": "Navega por la barra lateral y secciones principales",
+        "modules": "Descubre módulos y funciones clave",
+        "shortcuts": "Aprende atajos de teclado útiles"
+      },
+      "duration": "Toma aproximadamente 1-2 minutos",
+      "start": "Iniciar Tour",
+      "skip": "Omitir por ahora"
+    },
+    "steps": {
+      "sidebar": {
+        "title": "Navegación Lateral",
+        "content": "Usa la barra lateral para navegar entre las diferentes secciones del panel de administración."
+      },
+      "home": {
+        "title": "Panel de Inicio",
+        "content": "Este es tu centro de control. Ve estadísticas, actividad reciente y acciones rápidas."
+      },
+      "users": {
+        "title": "Gestión de Usuarios",
+        "content": "Administra cuentas de usuario, roles y permisos desde aquí."
+      },
+      "teams": {
+        "title": "Gestión de Equipos",
+        "content": "Organiza usuarios en equipos y administra la configuración de equipos."
+      },
+      "email": {
+        "title": "Correo y Notificaciones",
+        "content": "Configura plantillas de correo y preferencias de notificación."
+      },
+      "apps": {
+        "title": "Sección de Apps",
+        "content": "Accede a varias aplicaciones como Calendario, Kanban y Chat."
+      },
+      "userMenu": {
+        "title": "Menú de Usuario",
+        "content": "Accede a tu perfil, configuración y cierra sesión desde aquí."
+      },
+      "help": {
+        "title": "Ayuda y Soporte",
+        "content": "¿Necesitas ayuda? Accede a la documentación y soporte desde aquí. También puedes reiniciar este tour en cualquier momento."
+      }
+    }
+  },
+  "errors": {
+    "loadFailed": "Error al cargar el panel",
+    "loadFailedDescription": "Hubo un error al cargar el panel. Por favor, inténtalo de nuevo más tarde."
+  }
+}

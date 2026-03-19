@@ -1,0 +1,191 @@
+{
+  "title": "Email & Notifications",
+  "subtitle": "Manage email templates and notification settings for your workspace",
+  "routes": {
+    "home": "Email & Notifications",
+    "settings": "Global Email Settings",
+    "templates": "Email Templates",
+    "editor": "Edit Template"
+  },
+  "warnings": {
+    "providerNotConfigured": "Email provider is not configured",
+    "providerNotConfiguredDesc": "Emails may fail to send. Configure your provider settings."
+  },
+  "actions": {
+    "configure": "Configure"
+  },
+  "metrics": {
+    "providerStatus": "Provider Status",
+    "connected": "Connected",
+    "notSet": "Not Set",
+    "customized": "Customized",
+    "usingDefaults": "{{count}} using defaults",
+    "activeTemplates": "Active Templates",
+    "drafts": "{{count}} drafts",
+    "lastTestSent": "Last Test Sent",
+    "never": "Never"
+  },
+  "nav": {
+    "settings": {
+      "title": "Global Email Settings",
+      "description": "Configure sender information, reply-to address, footer content, and email provider settings",
+      "from": "From"
+    },
+    "templates": {
+      "title": "Email Templates",
+      "description": "Edit, preview, and customize email templates for all notification events across the app",
+      "users": "Users",
+      "auth": "Auth",
+      "billing": "Billing",
+      "teams": "Teams"
+    }
+  },
+  "settings": {
+    "title": "Global Email Settings",
+    "subtitle": "Configure app-wide email options",
+    "save": "Save Settings",
+    "sender": {
+      "title": "Sender Information",
+      "description": "Configure the default sender details for all emails",
+      "fromName": "From Name",
+      "fromNamePlaceholder": "Your App Name",
+      "fromEmail": "From Email",
+      "fromEmailPlaceholder": "noreply@yourapp.com",
+      "replyTo": "Reply-To Email",
+      "replyToPlaceholder": "support@yourapp.com"
+    },
+    "provider": {
+      "title": "Email Provider",
+      "description": "Configure your email delivery service",
+      "provider": "Provider",
+      "selectProvider": "Select a provider",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "Enter your API key",
+      "region": "Region",
+      "selectRegion": "Select region",
+      "test": "Test configuration",
+      "testing": "Testing connection...",
+      "verified": "Connection verified",
+      "retry": "Retry test"
+    },
+    "footer": {
+      "title": "Default Footer",
+      "description": "HTML content to include at the bottom of all emails",
+      "placeholder": "<p>© 2025 Your Company. All rights reserved.</p>",
+      "preview": "Preview"
+    },
+    "toasts": {
+      "saved": "Settings saved",
+      "savedDesc": "Your email settings have been updated successfully.",
+      "error": "Error saving settings",
+      "errorDesc": "Failed to save settings. Please try again.",
+      "testSuccess": "Connection successful",
+      "testFailed": "Connection failed",
+      "testFailedDesc": "Failed to connect. Please check your settings."
+    }
+  },
+  "templates": {
+    "title": "Email Templates",
+    "subtitle": "Manage and customize notification templates",
+    "searchPlaceholder": "Search by name or event ID...",
+    "tableTitle": "Templates ({{count}})",
+    "filters": {
+      "title": "Filters",
+      "featureArea": "Feature Area",
+      "allAreas": "All Areas",
+      "users": "Users",
+      "auth": "Auth",
+      "billing": "Billing",
+      "teams": "Teams",
+      "status": "Status",
+      "allStatus": "All Status",
+      "active": "Active",
+      "draft": "Draft",
+      "default": "Default"
+    },
+    "columns": {
+      "name": "Template Name",
+      "eventId": "Event ID",
+      "featureArea": "Feature Area",
+      "status": "Status",
+      "lastModified": "Last Modified"
+    },
+    "actions": {
+      "edit": "Edit",
+      "restoreDefault": "Restore default",
+      "disable": "Disable"
+    },
+    "empty": {
+      "noResults": "No templates match your filters",
+      "noTemplates": "No templates available",
+      "adjustFilters": "Try adjusting your search or filters",
+      "willAppear": "Templates will appear here when created"
+    }
+  },
+  "editor": {
+    "history": "History",
+    "sendTest": "Test",
+    "save": "Save",
+    "locale": "Locale",
+    "status": "Status",
+    "useCustom": "Use custom template",
+    "useCustomDesc": "Override the default template",
+    "lastUpdated": "Updated {{time}}",
+    "insertVariable": "Insert variable",
+    "togglePreview": "Toggle live preview",
+    "togglePanel": "Toggle side panel",
+    "panel": "Panel",
+    "settingsTab": "Settings",
+    "switchToHtml": "Switch to HTML",
+    "editPlainText": "Edit Plain Text",
+    "locales": {
+      "en": "English (Default)",
+      "es": "Spanish",
+      "fr": "French",
+      "de": "German"
+    },
+    "statuses": {
+      "active": "Active",
+      "draft": "Draft",
+      "default": "Default"
+    },
+    "warnings": {
+      "undefinedVariables": "Undefined variables detected",
+      "undefinedVariablesDesc": "The following variables are used but not defined: {{variables}}"
+    },
+    "subject": {
+      "title": "Subject Line",
+      "placeholder": "Enter email subject...",
+      "preview": "Preview"
+    },
+    "htmlBody": {
+      "title": "HTML Body"
+    },
+    "plainText": {
+      "title": "Plain Text Body (Optional)",
+      "placeholder": "Plain text version of the email..."
+    },
+    "preview": {
+      "title": "Live Preview",
+      "plainText": "Plain Text"
+    },
+    "variables": {
+      "title": "Variables",
+      "clickToInsert": "Click to insert at cursor",
+      "copy": "Copy to clipboard"
+    },
+    "testDialog": {
+      "title": "Send Test Email",
+      "description": "Send a test email to verify how it will look in an inbox",
+      "recipient": "Recipient Email",
+      "placeholder": "your-email@example.com",
+      "send": "Send Test"
+    },
+    "historyDialog": {
+      "title": "Version History",
+      "description": "View and restore previous versions of this template",
+      "noVersions": "No previous versions available",
+      "restore": "Restore"
+    }
+  }
+}

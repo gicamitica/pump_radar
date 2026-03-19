@@ -1,0 +1,55 @@
+{
+  "command": {
+    "placeholder": "Search or type a command..."
+  },
+  "focus": {
+    "title": "Today's Focus",
+    "empty": "Nothing to focus on today",
+    "view": "View"
+  },
+  "activity": {
+    "title": "Recent Activity",
+    "empty": "No recent activity",
+    "loadMore": "Load more",
+    "loading": "Loading..."
+  },
+  "recentModules": {
+    "title": "Recently Used",
+    "empty": "No recent modules"
+  },
+  "shortcuts": {
+    "title": "Shortcuts",
+    "favorites": "Favorites",
+    "all": "All Shortcuts",
+    "hint": "Press ? to see all keyboard shortcuts"
+  },
+  "powerTips": {
+    "trigger": "Power Tips",
+    "steps": {
+      "command": {
+        "title": "Command Center",
+        "content": "Use Ctrl+K to quickly search and execute commands. Type to filter actions or navigate to any module."
+      },
+      "focus": {
+        "title": "Today's Focus",
+        "content": "See what needs your attention today - pending invitations, upcoming events, and tasks due."
+      },
+      "activity": {
+        "title": "Activity Stream",
+        "content": "Track all system activity in real-time. Click any item to see details."
+      },
+      "modules": {
+        "title": "Recent Modules",
+        "content": "Quick access to your most visited modules. One click to jump back."
+      },
+      "shortcuts": {
+        "title": "Keyboard Shortcuts",
+        "content": "Star your favorite shortcuts for quick reference. Press ? anytime to see all shortcuts."
+      }
+    }
+  },
+  "errors": {
+    "loadFailed": "Failed to load activity hub",
+    "loadFailedDescription": "There was an error loading the activity hub. Please try again later."
+  }
+}

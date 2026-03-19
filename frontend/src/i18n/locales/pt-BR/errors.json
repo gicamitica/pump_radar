@@ -1,0 +1,42 @@
+{
+  "labels": {
+    "errorCode": "Erro {{code}}",
+    "stillLoggedIn": "Você ainda está conectado. Sua sessão está segura."
+  },
+  "actions": {
+    "goBack": "Voltar",
+    "goHome": "Voltar ao painel",
+    "reload": "Recarregar página",
+    "getHelp": "Obter ajuda"
+  },
+  "notFound": {
+    "title": "404",
+    "subtitle": "Página Não Encontrada",
+    "messageTitle": "Não conseguimos encontrar essa página",
+    "messageDescription": "A página que você está procurando pode ter sido movida, renomeada ou não existe. Verifique a URL ou volte ao painel."
+  },
+  "serverError": {
+    "title": "500",
+    "subtitle": "Erro do Servidor",
+    "messageTitle": "Algo deu errado do nosso lado",
+    "messageDescription": "Estamos com dificuldades técnicas. Nossa equipe foi notificada. Por favor, tente novamente em alguns instantes."
+  },
+  "forbidden": {
+    "title": "403",
+    "subtitle": "Acesso Negado",
+    "messageTitle": "Você não tem permissão para visualizar isso",
+    "messageDescription": "Sua conta não tem as permissões necessárias para acessar este recurso. Entre em contato com seu administrador se acreditar que isso é um erro."
+  },
+  "unauthorized": {
+    "title": "401",
+    "subtitle": "Não Autorizado",
+    "messageTitle": "Autenticação necessária",
+    "messageDescription": "Você precisa fazer login para acessar esta página. Sua sessão pode ter expirado."
+  },
+  "maintenance": {
+    "title": "503",
+    "subtitle": "Em Manutenção",
+    "messageTitle": "Voltaremos em breve",
+    "messageDescription": "Estamos realizando uma manutenção programada para melhorar sua experiência. Por favor, verifique novamente em alguns minutos."
+  }
+}

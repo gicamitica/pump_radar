@@ -1,0 +1,42 @@
+{
+  "labels": {
+    "errorCode": "Error {{code}}",
+    "stillLoggedIn": "You're still logged in. Your session is safe."
+  },
+  "actions": {
+    "goBack": "Go back",
+    "goHome": "Back to dashboard",
+    "reload": "Reload page",
+    "getHelp": "Get help"
+  },
+  "notFound": {
+    "title": "404",
+    "subtitle": "Page Not Found",
+    "messageTitle": "We couldn't find that page",
+    "messageDescription": "The page you're looking for might have been moved, renamed, or doesn't exist. Check the URL or head back to the dashboard."
+  },
+  "serverError": {
+    "title": "500",
+    "subtitle": "Server Error",
+    "messageTitle": "Something went wrong on our end",
+    "messageDescription": "We're experiencing technical difficulties. Our team has been notified. Please try again in a few moments."
+  },
+  "forbidden": {
+    "title": "403",
+    "subtitle": "Access Denied",
+    "messageTitle": "You don't have permission to view this",
+    "messageDescription": "Your account doesn't have the required permissions to access this resource. Contact your administrator if you believe this is an error."
+  },
+  "unauthorized": {
+    "title": "401",
+    "subtitle": "Unauthorized",
+    "messageTitle": "Authentication required",
+    "messageDescription": "You need to sign in to access this page. Your session may have expired."
+  },
+  "maintenance": {
+    "title": "503",
+    "subtitle": "Under Maintenance",
+    "messageTitle": "We'll be back shortly",
+    "messageDescription": "We're performing scheduled maintenance to improve your experience. Please check back in a few minutes."
+  }
+}

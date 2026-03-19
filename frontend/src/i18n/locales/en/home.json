@@ -1,0 +1,123 @@
+{
+  "title": "Admin Control Center",
+  "welcome": {
+    "greeting": "Welcome back, {{name}}!",
+    "usersCount": "{{count}} users",
+    "teamsCount": "{{count}} teams",
+    "users": "users",
+    "teams": "teams",
+    "takeTour": "Take a tour",
+    "retakeTour": "Retake tour"
+  },
+  "stats": {
+    "totalUsers": "Total Users",
+    "activeUsers": "Active Users",
+    "pendingInvitations": "Pending Invitations",
+    "activeTeams": "Active Teams",
+    "viewAll": "View all"
+  },
+  "checklist": {
+    "title": "Getting Started",
+    "progress": "{{completed}} of {{total}} completed",
+    "showMe": "Show me",
+    "goTo": "Go to",
+    "items": {
+      "inviteUsers": {
+        "title": "Invite users",
+        "description": "Add team members to your workspace"
+      },
+      "createTeam": {
+        "title": "Create a team",
+        "description": "Organize users into teams"
+      },
+      "configureEmail": {
+        "title": "Configure email templates",
+        "description": "Set up notification emails"
+      },
+      "reviewNotifications": {
+        "title": "Review notifications",
+        "description": "Configure notification preferences"
+      },
+      "exploreApps": {
+        "title": "Explore apps",
+        "description": "Discover available applications"
+      }
+    }
+  },
+  "quickActions": {
+    "title": "Quick Actions",
+    "inviteUser": "Invite User",
+    "createTeam": "Create Team",
+    "emailNotifications": "Email & Notifications",
+    "activityLog": "Activity Log",
+    "calendar": "Calendar"
+  },
+  "activity": {
+    "title": "Recent Activity",
+    "viewAll": "View all",
+    "empty": "No recent activity",
+    "actions": {
+      "user.created": "invited",
+      "user.role.changed": "changed role for",
+      "team.created": "created team",
+      "team.member.added": "added member to",
+      "notification.sent": "sent notification",
+      "app.accessed": "accessed"
+    }
+  },
+  "apps": {
+    "title": "Apps & Modules"
+  },
+  "tour": {
+    "consent": {
+      "title": "Take a quick tour?",
+      "description": "Learn how to navigate Katalyst in under 2 minutes.",
+      "features": {
+        "navigation": "Navigate the sidebar and main sections",
+        "modules": "Discover key modules and features",
+        "shortcuts": "Learn useful keyboard shortcuts"
+      },
+      "duration": "Takes about 1-2 minutes",
+      "start": "Start Tour",
+      "skip": "Skip for now"
+    },
+    "steps": {
+      "sidebar": {
+        "title": "Sidebar Navigation",
+        "content": "Use the sidebar to navigate between different sections of the admin panel."
+      },
+      "home": {
+        "title": "Home Dashboard",
+        "content": "This is your control center. View stats, recent activity, and quick actions."
+      },
+      "users": {
+        "title": "User Management",
+        "content": "Manage user accounts, roles, and permissions from here."
+      },
+      "teams": {
+        "title": "Team Management",
+        "content": "Organize users into teams and manage team settings."
+      },
+      "email": {
+        "title": "Email & Notifications",
+        "content": "Configure email templates and notification preferences."
+      },
+      "apps": {
+        "title": "Apps Section",
+        "content": "Access various applications like Calendar, Kanban, and Chat."
+      },
+      "userMenu": {
+        "title": "User Menu",
+        "content": "Access your profile, settings, and sign out from here."
+      },
+      "help": {
+        "title": "Help & Support",
+        "content": "Need help? Access documentation and support from here. You can also restart this tour anytime."
+      }
+    }
+  },
+  "errors": {
+    "loadFailed": "Failed to load dashboard",
+    "loadFailedDescription": "There was an error loading the dashboard. Please try again later."
+  }
+}

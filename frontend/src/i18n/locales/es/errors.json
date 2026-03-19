@@ -1,0 +1,42 @@
+{
+  "labels": {
+    "errorCode": "Error {{code}}",
+    "stillLoggedIn": "Sigues conectado. Tu sesión está segura."
+  },
+  "actions": {
+    "goBack": "Volver",
+    "goHome": "Ir al panel",
+    "reload": "Recargar página",
+    "getHelp": "Obtener ayuda"
+  },
+  "notFound": {
+    "title": "404",
+    "subtitle": "Página no encontrada",
+    "messageTitle": "No pudimos encontrar esa página",
+    "messageDescription": "La página que buscas pudo haber sido movida, renombrada o no existe. Verifica la URL o regresa al panel."
+  },
+  "serverError": {
+    "title": "500",
+    "subtitle": "Error del servidor",
+    "messageTitle": "Algo salió mal de nuestro lado",
+    "messageDescription": "Estamos experimentando dificultades técnicas. Nuestro equipo ha sido notificado. Intenta de nuevo en unos momentos."
+  },
+  "forbidden": {
+    "title": "403",
+    "subtitle": "Acceso denegado",
+    "messageTitle": "No tienes permiso para ver esto",
+    "messageDescription": "Tu cuenta no tiene los permisos necesarios para acceder a este recurso. Contacta a tu administrador si crees que es un error."
+  },
+  "unauthorized": {
+    "title": "401",
+    "subtitle": "No autorizado",
+    "messageTitle": "Se requiere autenticación",
+    "messageDescription": "Necesitas iniciar sesión para acceder a esta página. Tu sesión pudo haber expirado."
+  },
+  "maintenance": {
+    "title": "503",
+    "subtitle": "En mantenimiento",
+    "messageTitle": "Volveremos pronto",
+    "messageDescription": "Estamos realizando mantenimiento programado para mejorar tu experiencia. Vuelve en unos minutos."
+  }
+}

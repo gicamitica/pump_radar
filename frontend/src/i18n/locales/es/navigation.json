@@ -1,0 +1,275 @@
+{
+  "brand": "Katalyst",
+  "ariaMainNav": "Navegación principal",
+  "expand": "Expandir barra lateral",
+  "collapse": "Contraer barra lateral",
+  "section": {
+    "home": "Conceptos de Inicio",
+    "dashboards": "Paneles",
+    "apps": "Aplicaciones",
+    "management": "Gestión",
+    "pages": "Páginas",
+    "showcase": "Showcase",
+    "auth": "Autenticación",
+    "system": "Sistema"
+  },
+  "item": {
+    "admin-control": "Centro de Control Admin",
+    "guided-workspace": "Configuración del Espacio",
+    "activity-hub": "Centro de Actividad",
+    "ecommerce": "E-commerce",
+    "projects": "Proyectos",
+    "sales": "Ventas / Pedidos",
+    "executive": "Ejecutivo",
+    "shipments": "Seguimiento de Envíos",
+    "calendar": "Calendario",
+    "email": "Correo",
+    "chat": "Chat",
+    "inbox": "Bandeja de Entrada",
+    "kanban": "Kanban / Tareas",
+    "invoices": "Facturas",
+    "users": "Usuarios",
+    "integrations": "Aplicaciones",
+    "teams": "Equipos",
+    "notifications": "Correo y Notificaciones",
+    "pricing": "Precios",
+    "errorPages": "Páginas de Error",
+    "showcase-tables": "Tablas de Datos",
+    "showcase-forms": "Formularios",
+    "showcase-charts": "Gráficos",
+    "showcase-compositions": "Ejemplos Completos",
+    "showcase-command-palette": "Herramientas Pro",
+    "showcase-progressive": "Contenido Expandible",
+    "showcase-advanced-interactions": "Interacciones",
+    "showcase-ui-components": "Componentes",
+    "showcase-ui-patterns": "Patrones",
+    "showcase-states": "Estados y Feedback",
+    "showcase-design-system": "Sistema de Diseño",
+    "showcase-bulk-actions": "Acciones Masivas",
+    "showcase-inline-editing": "Edición en Línea",
+    "showcase-accessibility": "Accesibilidad",
+    "showcase-density": "Densidad y Escala",
+    "showcase-overflow": "Overflow y Contenido Largo",
+    "authMinimal": "Mínimo",
+    "authHero": "Hero",
+    "sysSettings": "Configuración",
+    "docs": "Documentación",
+    "changelog": "Registro de Cambios",
+    "layout-builder": "Constructor de Diseños"
+  },
+  "steps": {
+    "teams": {
+      "teams_table": "Lista de Tabla",
+      "teams_cards": "Lista de Tarjetas"
+    },
+    "notifications": {
+      "notifications": "Inicio",
+      "notifications_settings": "Configuración",
+      "notifications_template": "Plantillas"
+    },
+    "errorPages": {
+      "404": "404",
+      "500": "500"
+    },
+    "showcase-tables": {
+      "showcase-tables-basic": "Tablas Básicas",
+      "bulk-actions-tables": "Acciones Masivas",
+      "inline-editing-tables": "Edición en Línea",
+      "compositions-filtered-tables": "Tablas Filtradas",
+      "progressive-expandable-rows": "Filas Expandibles"
+    },
+    "showcase-forms": {
+      "showcase-forms-basics": "Fundamentos de Formularios",
+      "showcase-forms-validation": "Validación y Retroalimentación",
+      "showcase-forms-layouts": "Diseño y Composición",
+      "showcase-forms-advanced": "Escenarios Avanzados",
+      "inline-editing-forms": "Formularios en Línea",
+      "progressive-advanced-filters": "Filtros Avanzados",
+      "showcase-wizard": "Asistente"
+    },
+    "showcase-forms-advanced-fields": {
+      "showcase-forms-radios": "Grupos de Radio",
+      "showcase-forms-selects": "Campos de Selección",
+      "showcase-forms-masked": "Inputs con Máscara",
+      "showcase-forms-repeatable": "Campos Repetibles",
+      "showcase-forms-ready": "Campos Listos"
+    },
+    "showcase-charts": {
+      "showcase-charts-basic": "Tipos de Gráficos",
+      "showcase-stat-cards": "Tarjetas de Estadísticas",
+      "compositions-cards-charts": "Tarjetas + Gráficos",
+      "compositions-dashboards": "Diseños de Panel"
+    },
+    "showcase-compositions": {
+      "compositions-cards-charts": "Tarjetas + Gráficos",
+      "compositions-dashboards": "Secciones de Panel",
+      "compositions-filtered-tables": "Tablas Filtradas",
+      "compositions-master-detail": "Vista Maestro-Detalle",
+      "compositions-search-results": "Resultados de Búsqueda"
+    },
+    "showcase-command-palette": {
+      "command-palette-overview": "Resumen",
+      "command-palette-navigation": "Comandos de Navegación",
+      "command-palette-actions": "Comandos de Acción",
+      "shortcuts-overview": "Resumen de Atajos",
+      "shortcuts-navigation": "Atajos de Navegación",
+      "shortcuts-actions": "Atajos de Acción",
+      "shortcuts-cheat-sheet": "Hoja de Trucos"
+    },
+    "showcase-progressive": {
+      "progressive-advanced-filters": "Filtros Avanzados",
+      "progressive-collapsible-panels": "Paneles Plegables",
+      "progressive-expandable-rows": "Filas Expandibles",
+      "progressive-inline-reveal": "Revelación en Línea"
+    },
+    "showcase-advanced-interactions": {
+      "showcase-animations": "Animaciones",
+      "micro-buttons": "Botones Interactivos",
+      "micro-inputs": "Entradas Inteligentes",
+      "micro-toggles": "Animaciones de Toggle"
+    },
+    "showcase-ui-components": {
+      "showcase-alerts": "Alertas",
+      "showcase-avatars": "Avatares",
+      "showcase-buttons": "Botones",
+      "showcase-modals": "Modales",
+      "showcase-toasts": "Notificaciones"
+    },
+    "showcase-ui-patterns": {
+      "misc-badges": "Insignias",
+      "misc-breadcrumbs": "Migas de Pan",
+      "misc-loaders": "Cargadores y Esqueletos",
+      "misc-pagination": "Paginación",
+      "misc-scrollable": "Áreas Desplazables",
+      "misc-tabs": "Pestañas",
+      "misc-tooltips": "Tooltips y Popovers"
+    },
+    "showcase-states": {
+      "states-empty": "Estados Vacíos",
+      "states-error": "Estados de Error",
+      "states-loading": "Estados de Carga",
+      "states-mixed": "Estados Mixtos"
+    },
+    "showcase-design-system": {
+      "showcase-colors": "Colores",
+      "showcase-typography": "Tipografía"
+    },
+    "showcase-bulk-actions": {
+      "bulk-actions-confirmations": "Flujos de Confirmación",
+      "bulk-actions-lists": "Acciones Masivas de Lista",
+      "bulk-actions-tables": "Acciones Masivas de Tabla"
+    },
+    "showcase-inline-editing": {
+      "inline-editing-cards": "Tarjetas Editables",
+      "inline-editing-forms": "Formularios en Línea",
+      "inline-editing-tables": "Tablas Editables"
+    },
+    "authMinimal": {
+      "login": "Iniciar Sesión",
+      "register": "Registrarse",
+      "forgot": "Olvidé mi Contraseña",
+      "reset": "Restablecer Contraseña",
+      "twofactor": "Autenticación de Dos Factores",
+      "verify": "Verificar Correo",
+      "lock": "Pantalla de Bloqueo"
+    },
+    "authHero": {
+      "loginHero": "Iniciar Sesión",
+      "registerHero": "Registrarse",
+      "forgotHero": "Olvidé mi Contraseña",
+      "resetHero": "Restablecer Contraseña",
+      "twofactorHero": "Autenticación de Dos Factores",
+      "verifyHero": "Verificar Correo",
+      "lockHero": "Pantalla de Bloqueo"
+    }
+  },
+  "favoriteApps": {
+    "title": "Aplicaciones Favoritas",
+    "empty": "Fija aplicaciones para mostrarlas aquí."
+  },
+  "theme": {
+    "light": "Claro",
+    "dark": "Oscuro",
+    "system": "Sistema"
+  },
+  "announcement": {
+    "title": "Presentamos Servicios de IA",
+    "desc": "Descubre cómo las industrias líderes usan IA.",
+    "cta": "Ver demo de 1 min",
+    "dismiss": "Descartar"
+  },
+  "descriptions": {
+    "showcase-tables": "Tablas de datos avanzadas con ordenamiento, filtrado, paginación y edición en línea",
+    "showcase-forms": "Patrones de formulario listos para producción con validación, flujos multi-paso y campos dinámicos",
+    "showcase-charts": "Gráficos interactivos, visualizaciones y componentes de panel en tiempo real",
+    "showcase-compositions": "Ejemplos completos del mundo real combinando múltiples componentes y patrones",
+    "showcase-command-palette": "Interfaz de comandos controlada por teclado y atajos para usuarios avanzados",
+    "showcase-progressive": "Patrones de contenido expandible y técnicas de divulgación progresiva",
+    "showcase-advanced-interactions": "Micro-animaciones, efectos hover y retroalimentación interactiva",
+    "showcase-ui-components": "Bloques de construcción esenciales: botones, modales, alertas y más",
+    "showcase-ui-patterns": "Patrones de UI comunes: pestañas, migas de pan, paginación, tooltips",
+    "showcase-states": "Patrones de manejo de estados vacíos, carga, error y mixtos",
+    "showcase-design-system": "Tokens de diseño, paletas de colores y fundamentos tipográficos",
+    "showcase-bulk-actions": "Selección múltiple, operaciones en lote y flujos de confirmación",
+    "showcase-inline-editing": "Patrones de edición en línea para tablas, tarjetas y formularios",
+    "showcase-accessibility": "Patrones compatibles con WCAG y navegación por teclado",
+    "showcase-density": "Controles de densidad responsiva y opciones de escala",
+    "showcase-overflow": "Manejo de contenido largo y patrones de desbordamiento"
+  },
+  "mega": {
+    "showcase": {
+      "quickLinksTitle": "Acceso Rápido",
+      "featuredTitle": "Destacados",
+      "viewAll": "Ver Todo",
+      "heroTitle": "Construye con Confianza",
+      "heroSubtitle": "Componentes y patrones listos para producción",
+      "whatsNew": "Novedades",
+      "dashboardsTitle": "Suite de Dashboards Avanzados",
+      "dashboardsDesc": "Rastrea entregas, envíos y métricas inmobiliarias en tiempo real.",
+      "ctaMessage": "¿Necesitas una solución personalizada?",
+      "ctaButton": "Contáctanos",
+      "exploreTitle": "Explora Nuestros Componentes",
+      "exploreSubtitle": "Descubre herramientas y patrones poderosos para tu próximo proyecto",
+      "browse": "Explorar",
+      "proTip": "Consejo Pro",
+      "proTipText": "Todos los componentes son totalmente personalizables y listos para producción.",
+      "premium": "Nuevo lanzamiento",
+      "upgradeTitle": "Funciones Destacadas",
+      "upgradeDesc": "Desbloquea posibilidades ilimitadas",
+      "getStarted": "Comienza Hoy",
+      "guarantee": "Cancela en cualquier momento • 30 días de garantía",
+      "offerTitle": "Oferta Limitada",
+      "offerDesc": "Obtén 20% de descuento en planes anuales este mes",
+      "needHelp": "¿Necesitas Ayuda? Contáctanos",
+      "questions": "¿Encontraste todo?",
+      "contact": "Contáctanos",
+      "docs": "Documentación",
+      "support": "Soporte",
+      "community": "Comunidad",
+      "featured": {
+        "forms-tables": {
+          "title": "Componentes Principales",
+          "description": "Bloques esenciales para tu sistema de diseño"
+        },
+        "states-animations": {
+          "title": "Estados Avanzados",
+          "description": "Estados interactivos y comportamientos complejos"
+        }
+      },
+      "cta": {
+        "library": "Bienes Raíces",
+        "libraryDesc": "Gestión de Propiedades",
+        "support": "Rastreo de Envíos",
+        "supportDesc": "Actualizaciones en tiempo real",
+        "enterprise": "Rastreo de Entregas",
+        "enterpriseDesc": "Gestión de Flotas"
+      },
+      "columns": {
+        "0": "Divulgación",
+        "1": "Edición",
+        "2": "Interacción",
+        "3": "Masivo"
+      }
+    }
+  }
+}

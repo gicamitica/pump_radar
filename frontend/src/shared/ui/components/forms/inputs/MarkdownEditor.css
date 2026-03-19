@@ -1,0 +1,143 @@
+/* MDXEditor Theme Overrides */
+
+.markdown-editor-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: transparent !important;
+}
+
+/* 1. Editor Content Area */
+.markdown-editor-wrapper [contenteditable="true"],
+.markdown-editor-wrapper [role="textbox"],
+.markdown-editor-wrapper [class*='_rootContentEditable'] {
+  padding: 1rem 0.75rem !important;
+  font-size: 0.9375rem !important;
+  line-height: 1.6 !important;
+  min-height: inherit;
+  outline: none !important;
+}
+
+.dark .markdown-editor-wrapper [contenteditable="true"],
+.dark .markdown-editor-wrapper [contenteditable="true"] *,
+.dark .markdown-editor-wrapper [role="textbox"],
+.dark .markdown-editor-wrapper [role="textbox"] *,
+.dark .markdown-editor-wrapper [class*='_rootContentEditable'],
+.dark .markdown-editor-wrapper [class*='_rootContentEditable'] * {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* 2. Toolbar & Icons */
+.markdown-editor-wrapper [class*='_toolbarRoot'],
+.markdown-editor-wrapper [role="toolbar"] {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(var(--border), 0.5) !important;
+  padding: 0.35rem 0.5rem !important;
+  gap: 0.25rem !important;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+/* Universal Button Styles */
+.markdown-editor-wrapper button {
+  appearance: none !important;
+  background: transparent !important;
+  border: none !important;
+  color: var(--muted-foreground) !important;
+  opacity: 1 !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 2.25rem !important;
+  height: 2.25rem !important;
+  border-radius: 0.5rem !important;
+  transition: all 0.2s ease !important;
+}
+
+.dark .markdown-editor-wrapper button {
+  color: oklch(0.85 0 0) !important;
+}
+
+/* Base SVG size and color */
+.markdown-editor-wrapper button svg {
+  width: 1rem !important;
+  height: 1rem !important;
+  color: inherit !important;
+}
+
+/* Standardizing Icons */
+
+/* Default: Fill paths for traditional icon fonts/Radix icons */
+.markdown-editor-wrapper button svg path,
+.markdown-editor-wrapper button svg circle,
+.markdown-editor-wrapper button svg rect {
+  fill: currentColor;
+}
+
+/* 
+   FIX for Lucide/Stroke-based icons (specifically Paperclip):
+   If the SVG has a stroke attribute OR is a lucide icon, 
+   we force stroke-only and disable fill on its children.
+*/
+.markdown-editor-wrapper button svg[stroke],
+.markdown-editor-wrapper button svg.lucide,
+.markdown-editor-wrapper button svg[fill="none"] {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2 !important;
+  /* Lucide standard weight */
+}
+
+/* Ensure children of stroke-based SVGs don't get filled */
+.markdown-editor-wrapper button svg[stroke] path,
+.markdown-editor-wrapper button svg.lucide path,
+.markdown-editor-wrapper button svg[fill="none"] path,
+.markdown-editor-wrapper button svg[stroke] circle,
+.markdown-editor-wrapper button svg.lucide circle,
+.markdown-editor-wrapper button svg[fill="none"] circle {
+  fill: none !important;
+  stroke: inherit !important;
+}
+
+/* Hover & Active States */
+.markdown-editor-wrapper button:hover {
+  background: rgba(var(--primary), 0.1) !important;
+  /*color: var(--primary) !important;*/
+}
+
+.dark .markdown-editor-wrapper button:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: #ffffff !important;
+}
+
+.markdown-editor-wrapper button[aria-pressed="true"],
+.markdown-editor-wrapper button[class*="_activeToolbarButton"] {
+  background: rgba(var(--primary), 0.15) !important;
+  color: var(--primary) !important;
+}
+
+.dark .markdown-editor-wrapper button[aria-pressed="true"],
+.dark .markdown-editor-wrapper button[class*="_activeToolbarButton"] {
+  background: rgba(255, 255, 255, 0.2) !important;
+  color: #ffffff !important;
+}
+
+/* Disabled State */
+.markdown-editor-wrapper button:disabled,
+.markdown-editor-wrapper button[aria-disabled="true"],
+.markdown-editor-wrapper button[data-disabled] {
+  opacity: 0.3 !important;
+  pointer-events: none !important;
+}
+
+/* 3. Dropdowns & Tooltips */
+.markdown-editor-wrapper [role="dialog"],
+.markdown-editor-wrapper [role="popover"] {
+  background: var(--popover) !important;
+  color: var(--popover-foreground) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+}

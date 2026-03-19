@@ -1,0 +1,8 @@
+{
+  "changelog": {
+    "title": "Historial de Cambios",
+    "description": "Seguimiento de todas las actualizaciones, mejoras y versiones de Katalyst Admin Template.",
+    "version": "Versión {{version}}",
+    "footer": "Para más detalles, visita nuestra documentación o contacta con soporte."
+  }
+}

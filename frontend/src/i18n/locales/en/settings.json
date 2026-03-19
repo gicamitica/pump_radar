@@ -1,0 +1,224 @@
+{
+  "nav": {
+    "aria": "Settings navigation",
+    "items": {
+      "profile": "Profile",
+      "account": "Account",
+      "billing": "Billing",
+      "security": "Security",
+      "apps": "Apps",
+      "notifications": "Notifications",
+      "preferences": "Preferences"
+    }
+  },
+  "title": "Settings",
+  "description": "Manage your account settings",
+  "profile": {
+    "title": "Profile Information",
+    "subtitle": "Update your personal information and profile picture",
+    "form": {
+      "first_name": "First Name",
+      "first_name_placeholder": "John",
+      "last_name": "Last Name",
+      "last_name_placeholder": "Doe",
+      "bio": "Bio",
+      "bio_placeholder": "Tell us about yourself",
+      "bio_default": "Product Designer at Figma",
+      "location": "Location",
+      "location_placeholder": "San Francisco, CA",
+      "website": "Website",
+      "website_placeholder": "https://example.com"
+    },
+    "avatar": {
+      "change_photo": "Change Photo",
+      "change_aria": "Change avatar",
+      "help": "JPG, PNG or GIF. Max size 5MB."
+    }
+  },
+  "actions": {
+    "cancel": "Cancel",
+    "save_changes": "Save Changes",
+    "update_account": "Update Account",
+    "reset_to_default": "Reset to Default",
+    "save_preferences": "Save Preferences",
+    "delete": "Delete",
+    "update": "Update"
+  },
+  "account": {
+    "title": "Account Settings",
+    "subtitle": "Manage your account credentials and contact information",
+    "email": {
+      "primary": "Primary email address",
+      "verified": "Verified"
+    },
+    "phone": {
+      "label": "Phone number"
+    },
+    "password": {
+      "title": "Password",
+      "current": "Current password",
+      "current_placeholder": "Current password",
+      "new": "New password",
+      "new_placeholder": "New password",
+      "confirm": "Confirm new password",
+      "confirm_placeholder": "Confirm new password"
+    },
+    "danger_zone": {
+      "title": "Danger Zone",
+      "description": "Irreversible actions for your account",
+      "delete_account_title": "Delete Account",
+      "delete_account_desc": "Permanently delete your account and all data"
+    }
+  },
+  "billing": {
+    "title": "Billing & Subscription",
+    "subtitle": "Manage your subscription and payment methods",
+    "payment_methods": {
+      "title": "Payment Methods",
+      "expires": "Expires {{date}}",
+      "default": "Default",
+      "add": "+ Add Payment Method"
+    },
+    "invoices": {
+      "title": "Recent Invoices",
+      "number": "Invoice #{{index}}",
+      "status": {
+        "paid": "Paid"
+      }
+    },
+    "plan": {
+      "name": "Pro Plan",
+      "price_label": "$29/month",
+      "billed_next": "Billed monthly • Next payment on {{date}}",
+      "features": {
+        "projects": "Projects",
+        "storage": "Storage",
+        "team_members": "Team Members",
+        "projects_value": "Unlimited",
+        "storage_value": "500 GB",
+        "team_members_value": "10 seats"
+      },
+      "upgrade": "Upgrade"
+    }
+  },
+  "security": {
+    "title": "Security Settings",
+    "subtitle": "Protect your account with additional security measures",
+    "2fa": {
+      "title": "Two-Factor Authentication",
+      "description": "Add an extra layer of security to your account",
+      "enabled_message": "2FA is currently enabled via Authenticator App"
+    },
+    "sessions": {
+      "title": "Active Sessions",
+      "current_active": "Current session • Active now",
+      "last_active_hours": "Last active {{hours}} hours ago",
+      "active_badge": "Active",
+      "revoke": "Revoke"
+    },
+    "api_keys": {
+      "title": "API Keys",
+      "production": "Production API Key",
+      "create_new": "+ Create New API Key",
+      "regenerate": "Regenerate",
+      "delete": "Delete"
+    }
+  },
+  "apps": {
+    "title": "Connected Apps",
+    "subtitle": "Manage third-party applications and integrations",
+    "connected_badge": "Connected",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "list": {
+      "slack": { "name": "Slack", "description": "Team communication and collaboration" },
+      "github": { "name": "GitHub", "description": "Code repository and version control" },
+      "google_drive": { "name": "Google Drive", "description": "Cloud storage and file sharing" },
+      "figma": { "name": "Figma", "description": "Design and prototyping tool" },
+      "notion": { "name": "Notion", "description": "Notes and documentation" },
+      "linear": { "name": "Linear", "description": "Issue tracking and project management" }
+    }
+  },
+  "notifications": {
+    "title": "Notification Preferences",
+    "subtitle": "Choose how you want to be notified",
+    "settings": {
+      "email_notifications": {
+        "title": "Email Notifications",
+        "description": "Receive email updates about your account activity"
+      },
+      "push_notifications": {
+        "title": "Push Notifications",
+        "description": "Receive push notifications on your devices"
+      },
+      "sms_notifications": {
+        "title": "SMS Notifications",
+        "description": "Receive text messages for important updates"
+      },
+      "weekly_digest": {
+        "title": "Weekly Digest",
+        "description": "Get a weekly summary of your activity"
+      },
+      "product_updates": {
+        "title": "Product Updates",
+        "description": "Hear about new features and improvements"
+      },
+      "marketing_emails": {
+        "title": "Marketing Emails",
+        "description": "Receive promotional content and offers"
+      }
+    },
+    "quiet_hours": {
+      "title": "Quiet Hours",
+      "description": "Set times when you don't want to receive notifications",
+      "to": "to"
+    }
+  },
+  "preferences": {
+    "title": "General Preferences",
+    "subtitle": "Customize your experience and interface",
+    "appearance": {
+      "title": "Appearance"
+    },
+    "language_region": {
+      "title": "Language & Region"
+    },
+    "accessibility": {
+      "title": "Accessibility",
+      "reduced_motion": {
+        "title": "Reduced Motion",
+        "description": "Minimize animations and transitions"
+      },
+      "high_contrast": {
+        "title": "High Contrast",
+        "description": "Increase contrast for better visibility"
+      },
+      "large_text": {
+        "title": "Large Text",
+        "description": "Increase text size throughout the app"
+      }
+    },
+    "language_selector": {
+      "language_label": "Language",
+      "language_value": "English (US)",
+      "timezone_label": "Timezone",
+      "timezone_value": "Pacific Time (PT)"
+    }
+  },
+  "sidebarAppearance": {
+    "title": "Sidebar Appearance",
+    "description": "Customize the sidebar look and feel",
+    "light": {
+      "title": "Light",
+      "description": "Clean and minimal sidebar"
+    },
+    "dark": {
+      "title": "Dark",
+      "description": "Low-light optimized sidebar"
+    },
+    "gradient": {
+      "title": "Gradient",
+      "description": "Premium gradient sidebar"
+    }
+  }
+}

@@ -1,0 +1,240 @@
+{
+  "progress": {
+    "title": "Set up your workspace",
+    "description": "Complete these steps to get your workspace ready for your team.",
+    "stepsCompleted": "{{completed}} of {{total}} steps completed",
+    "estimatedTime": "~{{minutes}} min remaining",
+    "complete": "Setup Complete!",
+    "completeDescription": "Your workspace is fully configured and ready to use."
+  },
+  "wizard": {
+    "title": "Setup Steps",
+    "description": "Follow these steps to configure your workspace.",
+    "configure": "Configure",
+    "guideMe": "Guide me",
+    "skip": "Skip",
+    "markComplete": "Mark as complete",
+    "status": {
+      "pending": "Pending",
+      "in_progress": "In Progress",
+      "completed": "Completed",
+      "skipped": "Skipped"
+    },
+    "steps": {
+      "workspace-basics": {
+        "title": "Workspace Basics",
+        "shortDescription": "Configure your workspace name and settings",
+        "description": "Set up the foundational settings for your workspace including name, timezone, and default preferences."
+      },
+      "invite-users": {
+        "title": "Invite Users",
+        "shortDescription": "Add team members to your workspace",
+        "description": "Invite your team members by email. You can assign roles and permissions during or after the invitation process."
+      },
+      "create-teams": {
+        "title": "Create Teams",
+        "shortDescription": "Organize users into teams",
+        "description": "Create teams to organize your users. Teams help manage permissions and collaboration across your workspace."
+      },
+      "configure-email": {
+        "title": "Configure Email & Notifications",
+        "shortDescription": "Set up email templates and notifications",
+        "description": "Customize email templates for invitations, notifications, and system messages. Configure notification preferences for your workspace."
+      },
+      "review-security": {
+        "title": "Review Security",
+        "shortDescription": "Configure security settings",
+        "description": "Review and configure security settings including password policies, session management, and access controls."
+      },
+      "explore-apps": {
+        "title": "Explore Apps",
+        "shortDescription": "Discover available applications",
+        "description": "Explore the available applications in your workspace including Calendar, Kanban, Chat, and more."
+      }
+    }
+  },
+  "preview": {
+    "selectStep": "Select a step to see more details",
+    "whatYouWillDo": "What you'll do:",
+    "tip": "Tip",
+    "steps": {
+      "workspace-basics": {
+        "title": "About Workspace Basics",
+        "explanation": "The workspace basics step helps you establish the foundation of your admin environment. This includes naming your workspace and setting default preferences.",
+        "tasks": [
+          "Set your workspace name",
+          "Choose your timezone",
+          "Configure default language",
+          "Set up branding (optional)"
+        ],
+        "tip": "Choose a clear, recognizable name that your team will easily identify."
+      },
+      "invite-users": {
+        "title": "About Inviting Users",
+        "explanation": "Adding users is essential to get your team onboarded. You can invite users individually or in bulk, and assign them appropriate roles.",
+        "tasks": [
+          "Add user email addresses",
+          "Assign roles (Admin, Member, Viewer)",
+          "Send invitation emails",
+          "Track invitation status"
+        ],
+        "tip": "Start with a small group of key users to test your setup before inviting everyone."
+      },
+      "create-teams": {
+        "title": "About Creating Teams",
+        "explanation": "Teams help you organize users and manage permissions efficiently. Create teams based on departments, projects, or any grouping that makes sense for your organization.",
+        "tasks": [
+          "Create team groups",
+          "Add members to teams",
+          "Set team permissions",
+          "Assign team leads"
+        ],
+        "tip": "Keep team structures simple at first. You can always reorganize later."
+      },
+      "configure-email": {
+        "title": "About Email Configuration",
+        "explanation": "Email templates ensure consistent communication with your users. Customize templates for various scenarios like invitations, password resets, and notifications.",
+        "tasks": [
+          "Review default templates",
+          "Customize email content",
+          "Set notification preferences",
+          "Test email delivery"
+        ],
+        "tip": "Preview your emails before going live to ensure they look professional."
+      },
+      "review-security": {
+        "title": "About Security Settings",
+        "explanation": "Security settings protect your workspace and user data. Review these settings to ensure they meet your organization's requirements.",
+        "tasks": [
+          "Set password requirements",
+          "Configure session timeouts",
+          "Review access controls",
+          "Enable two-factor authentication (optional)"
+        ],
+        "tip": "Balance security with usability. Too strict policies may frustrate users."
+      },
+      "explore-apps": {
+        "title": "About Available Apps",
+        "explanation": "Your workspace includes several applications to enhance productivity. Explore each app to understand how they can benefit your team.",
+        "tasks": [
+          "Browse available apps",
+          "Try the Calendar app",
+          "Explore Kanban boards",
+          "Check out the Chat feature"
+        ],
+        "tip": "Enable apps gradually and train your team on each one before adding more."
+      }
+    }
+  },
+  "shortcuts": {
+    "title": "Quick Start",
+    "inviteUser": "Invite User",
+    "createTeam": "Create Team",
+    "emailTemplates": "Email Templates",
+    "settings": "Settings"
+  },
+  "readiness": {
+    "title": "System Readiness",
+    "status": "{{passed}} of {{total}} ready",
+    "checks": {
+      "emailProvider": "Email provider configured",
+      "notificationsActive": "Notifications active",
+      "adminUsers": "Admin users present",
+      "securityBasics": "Security basics enabled"
+    }
+  },
+  "completion": {
+    "title": "You're all set!",
+    "description": "Your workspace is configured and ready for your team. Choose how you'd like to continue.",
+    "switchLayout": "Choose your home layout:",
+    "adminControlCenter": "Admin Control Center",
+    "actionActivityHub": "Action & Activity Hub",
+    "resetSetup": "Reset setup wizard"
+  },
+  "tours": {
+    "inviteUsers": {
+      "steps": {
+        "sidebar": {
+          "title": "Users Section",
+          "content": "Click here to access the Users management section."
+        },
+        "list": {
+          "title": "User List",
+          "content": "This is where you'll see all users in your workspace."
+        },
+        "invite": {
+          "title": "Invite Button",
+          "content": "Click this button to invite new users to your workspace."
+        },
+        "roles": {
+          "title": "User Roles",
+          "content": "Assign roles to control what users can access and do."
+        }
+      }
+    },
+    "createTeams": {
+      "steps": {
+        "sidebar": {
+          "title": "Teams Section",
+          "content": "Click here to access the Teams management section."
+        },
+        "list": {
+          "title": "Team List",
+          "content": "View and manage all teams in your workspace here."
+        },
+        "create": {
+          "title": "Create Team",
+          "content": "Click this button to create a new team."
+        },
+        "members": {
+          "title": "Team Members",
+          "content": "Add and manage team members from the team detail view."
+        }
+      }
+    },
+    "configureEmail": {
+      "steps": {
+        "sidebar": {
+          "title": "Email Section",
+          "content": "Click here to access Email & Notifications settings."
+        },
+        "templates": {
+          "title": "Email Templates",
+          "content": "Customize your email templates for different scenarios."
+        },
+        "settings": {
+          "title": "Email Settings",
+          "content": "Configure email delivery settings and preferences."
+        },
+        "preview": {
+          "title": "Preview Emails",
+          "content": "Preview how your emails will look before sending."
+        }
+      }
+    },
+    "exploreApps": {
+      "steps": {
+        "sidebar": {
+          "title": "Apps Section",
+          "content": "This section contains all available applications."
+        },
+        "calendar": {
+          "title": "Calendar App",
+          "content": "Schedule and manage events with the Calendar app."
+        },
+        "kanban": {
+          "title": "Kanban Boards",
+          "content": "Organize tasks visually with Kanban boards."
+        },
+        "chat": {
+          "title": "Chat App",
+          "content": "Communicate with your team using the Chat app."
+        }
+      }
+    }
+  },
+  "errors": {
+    "loadFailed": "Failed to load setup",
+    "loadFailedDescription": "There was an error loading the setup wizard. Please try again later."
+  }
+}

@@ -1,0 +1,240 @@
+{
+  "progress": {
+    "title": "Configure seu espaço de trabalho",
+    "description": "Complete estas etapas para preparar seu espaço de trabalho para sua equipe.",
+    "stepsCompleted": "{{completed}} de {{total}} etapas concluídas",
+    "estimatedTime": "~{{minutes}} min restantes",
+    "complete": "Configuração Concluída!",
+    "completeDescription": "Seu espaço de trabalho está totalmente configurado e pronto para uso."
+  },
+  "wizard": {
+    "title": "Etapas de Configuração",
+    "description": "Siga estas etapas para configurar seu espaço de trabalho.",
+    "configure": "Configurar",
+    "guideMe": "Guie-me",
+    "skip": "Pular",
+    "markComplete": "Marcar como concluído",
+    "status": {
+      "pending": "Pendente",
+      "in_progress": "Em Progresso",
+      "completed": "Concluído",
+      "skipped": "Pulado"
+    },
+    "steps": {
+      "workspace-basics": {
+        "title": "Básico do Espaço de Trabalho",
+        "shortDescription": "Configure o nome e as configurações do seu espaço de trabalho",
+        "description": "Configure as definições fundamentais para seu espaço de trabalho, incluindo nome, fuso horário e preferências padrão."
+      },
+      "invite-users": {
+        "title": "Convidar Usuários",
+        "shortDescription": "Adicione membros da equipe ao seu espaço de trabalho",
+        "description": "Convide os membros da sua equipe por e-mail. Você pode atribuir cargos e permissões durante ou após o processo de convite."
+      },
+      "create-teams": {
+        "title": "Criar Equipes",
+        "shortDescription": "Organize usuários em equipes",
+        "description": "Crie equipes para organizar seus usuários. Equipes ajudam a gerenciar permissões e colaboração em seu espaço de trabalho."
+      },
+      "configure-email": {
+        "title": "Configurar E-mail e Notificações",
+        "shortDescription": "Configure modelos de e-mail e notificações",
+        "description": "Personalize modelos de e-mail para convites, notificações e mensagens do sistema. Configure preferências de notificação para seu espaço de trabalho."
+      },
+      "review-security": {
+        "title": "Revisar Segurança",
+        "shortDescription": "Configure as definições de segurança",
+        "description": "Revise e configure as definições de segurança, incluindo políticas de senha, gerenciamento de sessão e controles de acesso."
+      },
+      "explore-apps": {
+        "title": "Explorar Apps",
+        "shortDescription": "Descubra aplicativos disponíveis",
+        "description": "Explore os aplicativos disponíveis em seu espaço de trabalho, incluindo Calendário, Kanban, Chat e muito mais."
+      }
+    }
+  },
+  "preview": {
+    "selectStep": "Selecione uma etapa para ver mais detalhes",
+    "whatYouWillDo": "O que você fará:",
+    "tip": "Dica",
+    "steps": {
+      "workspace-basics": {
+        "title": "Sobre o Básico do Espaço de Trabalho",
+        "explanation": "A etapa de básico do espaço de trabalho ajuda você a estabelecer a fundação do seu ambiente administrativo. Isso inclui nomear seu espaço de trabalho e definir preferências padrão.",
+        "tasks": [
+          "Definir o nome do seu espaço de trabalho",
+          "Escolher seu fuso horário",
+          "Configurar idioma padrão",
+          "Configurar marca (opcional)"
+        ],
+        "tip": "Escolha um nome claro e reconhecível que sua equipe identificará facilmente."
+      },
+      "invite-users": {
+        "title": "Sobre Convidar Usuários",
+        "explanation": "Adicionar usuários é essencial para integrar sua equipe. Você pode convidar usuários individualmente ou em massa e atribuir a eles os cargos apropriados.",
+        "tasks": [
+          "Adicionar endereços de e-mail dos usuários",
+          "Atribuir cargos (Admin, Membro, Visualizador)",
+          "Enviar e-mails de convite",
+          "Rastrear status do convite"
+        ],
+        "tip": "Comece com um pequeno grupo de usuários principais para testar sua configuração antes de convidar todos."
+      },
+      "create-teams": {
+        "title": "Sobre Criar Equipes",
+        "explanation": "Equipes ajudam você a organizar usuários e gerenciar permissões de forma eficiente. Crie equipes com base em departamentos, projetos ou qualquer agrupamento que faça sentido para sua organização.",
+        "tasks": [
+          "Criar grupos de equipe",
+          "Adicionar membros às equipes",
+          "Definir permissões de equipe",
+          "Atribuir líderes de equipe"
+        ],
+        "tip": "Mantenha as estruturas de equipe simples no início. Você sempre pode reorganizar mais tarde."
+      },
+      "configure-email": {
+        "title": "Sobre Configuração de E-mail",
+        "explanation": "Modelos de e-mail garantem comunicação consistente com seus usuários. Personalize modelos para vários cenários, como convites, redefinições de senha e notificações.",
+        "tasks": [
+          "Revisar modelos padrão",
+          "Personalizar conteúdo de e-mail",
+          "Definir preferências de notificação",
+          "Testar entrega de e-mail"
+        ],
+        "tip": "Visualize seus e-mails antes de entrar em operação para garantir que pareçam profissionais."
+      },
+      "review-security": {
+        "title": "Sobre Configurações de Segurança",
+        "explanation": "As configurações de segurança protegem seu espaço de trabalho e dados do usuário. Revise essas configurações para garantir que atendam aos requisitos da sua organização.",
+        "tasks": [
+          "Definir requisitos de senha",
+          "Configurar tempos limite de sessão",
+          "Revisar controles de acesso",
+          "Ativar autenticação de dois fatores (opcional)"
+        ],
+        "tip": "Equilibre segurança com usabilidade. Políticas muito rígidas podem frustrar os usuários."
+      },
+      "explore-apps": {
+        "title": "Sobre Apps Disponíveis",
+        "explanation": "Seu espaço de trabalho inclui vários aplicativos para aumentar a produtividade. Explore cada aplicativo para entender como eles podem beneficiar sua equipe.",
+        "tasks": [
+          "Navegar pelos apps disponíveis",
+          "Experimentar o app Calendário",
+          "Explorar quadros Kanban",
+          "Conferir o recurso de Chat"
+        ],
+        "tip": "Ative aplicativos gradualmente e treine sua equipe em cada um antes de adicionar mais."
+      }
+    }
+  },
+  "shortcuts": {
+    "title": "Início Rápido",
+    "inviteUser": "Convidar Usuário",
+    "createTeam": "Criar Equipe",
+    "emailTemplates": "Modelos de E-mail",
+    "settings": "Configurações"
+  },
+  "readiness": {
+    "title": "Prontidão do Sistema",
+    "status": "{{passed}} de {{total}} pronto",
+    "checks": {
+      "emailProvider": "Provedor de e-mail configurado",
+      "notificationsActive": "Notificações ativas",
+      "adminUsers": "Usuários administradores presentes",
+      "securityBasics": "Noções básicas de segurança ativadas"
+    }
+  },
+  "completion": {
+    "title": "Tudo pronto!",
+    "description": "Seu espaço de trabalho está configurado e pronto para sua equipe. Escolha como deseja continuar.",
+    "switchLayout": "Escolha seu layout inicial:",
+    "adminControlCenter": "Centro de Controle Administrativo",
+    "actionActivityHub": "Hub de Ação e Atividade",
+    "resetSetup": "Redefinir assistente de configuração"
+  },
+  "tours": {
+    "inviteUsers": {
+      "steps": {
+        "sidebar": {
+          "title": "Seção de Usuários",
+          "content": "Clique aqui para acessar a seção de gerenciamento de Usuários."
+        },
+        "list": {
+          "title": "Lista de Usuários",
+          "content": "Aqui é onde você verá todos os usuários em seu espaço de trabalho."
+        },
+        "invite": {
+          "title": "Botão Convidar",
+          "content": "Clique neste botão para convidar novos usuários para seu espaço de trabalho."
+        },
+        "roles": {
+          "title": "Cargos de Usuário",
+          "content": "Atribua cargos para controlar o que os usuários podem acessar e fazer."
+        }
+      }
+    },
+    "createTeams": {
+      "steps": {
+        "sidebar": {
+          "title": "Seção de Equipes",
+          "content": "Clique aqui para acessar a seção de gerenciamento de Equipes."
+        },
+        "list": {
+          "title": "Lista de Equipes",
+          "content": "Visualize e gerencie todas as equipes em seu espaço de trabalho aqui."
+        },
+        "create": {
+          "title": "Criar Equipe",
+          "content": "Clique neste botão para criar uma nova equipe."
+        },
+        "members": {
+          "title": "Membros da Equipe",
+          "content": "Adicione e gerencie membros da equipe na visualização de detalhes da equipe."
+        }
+      }
+    },
+    "configureEmail": {
+      "steps": {
+        "sidebar": {
+          "title": "Seção de E-mail",
+          "content": "Clique aqui para acessar as configurações de E-mail e Notificações."
+        },
+        "templates": {
+          "title": "Modelos de E-mail",
+          "content": "Personalize seus modelos de e-mail para diferentes cenários."
+        },
+        "settings": {
+          "title": "Configurações de E-mail",
+          "content": "Configure definições e preferências de entrega de e-mail."
+        },
+        "preview": {
+          "title": "Visualizar E-mails",
+          "content": "Visualize como seus e-mails ficarão antes de enviar."
+        }
+      }
+    },
+    "exploreApps": {
+      "steps": {
+        "sidebar": {
+          "title": "Seção de Apps",
+          "content": "Esta seção contém todos os aplicativos disponíveis."
+        },
+        "calendar": {
+          "title": "App Calendário",
+          "content": "Agende e gerencie eventos com o app Calendário."
+        },
+        "kanban": {
+          "title": "Quadros Kanban",
+          "content": "Organize tarefas visualmente com quadros Kanban."
+        },
+        "chat": {
+          "title": "App de Chat",
+          "content": "Comunique-se com sua equipe usando o app de Chat."
+        }
+      }
+    }
+  },
+  "errors": {
+    "loadFailed": "Falha ao carregar configuração",
+    "loadFailedDescription": "Houve um erro ao carregar o assistente de configuração. Por favor, tente novamente mais tarde."
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "appName": "Katalyst Admin",
+  "ok": "OK",
+  "cancel": "Cancelar",
+  "save": "Salvar",
+  "done": "Concluído",
+  "loading": "Carregando...",
+  "tour": {
+    "previous": "Anterior",
+    "next": "Próximo",
+    "finish": "Concluir"
+  },
+  "async": {
+    "errorTitle": "Algo deu errado",
+    "errorDescription": "Ocorreu um erro inesperado. Por favor, tente novamente.",
+    "emptyTitle": "Nenhum dado encontrado",
+    "emptyDescription": "Não há itens para exibir.",
+    "successTitle": "Sucesso",
+    "notFoundTitle": "Não Encontrado",
+    "notFoundDescription": "O recurso que você está procurando não existe.",
+    "retry": "Tentar Novamente",
+    "goHome": "Ir para a Página Inicial"
+  },
+  "actions": {
+    "cancel": "Cancelar",
+    "save": "Salvar",
+    "save_changes": "Salvar Alterações",
+    "update": "Atualizar",
+    "update_account": "Atualizar Conta",
+    "reset_to_default": "Redefinir para o Padrão",
+    "save_preferences": "Salvar Preferências",
+    "delete": "Excluir"
+  },
+  "table": {
+    "search": "Pesquisar…",
+    "select": "Selecionar…",
+    "columns": "Colunas",
+    "actions": "Ações",
+    "exportCsv": "Exportar CSV",
+    "noResults": "Nenhum resultado encontrado",
+    "error": "Falha ao carregar dados",
+    "loading": "Carregando...",
+    "selectAll": "Selecionar tudo",
+    "selectRow": "Selecionar linha {{n}}",
+    "rows_per_page": "Linhas por página"
+  },
+  "topbar": {
+    "openMenu": "Abrir menu",
+    "search": "[CTRL + K]",
+    "languages": "Idiomas",
+    "selectLanguage": "Selecionar Idioma",
+    "notifications": "Notificações",
+    "notificationsTitle": "Notificações",
+    "tab": {
+      "all": "Todas",
+      "following": "Seguindo",
+      "archive": "Arquivo"
+    },
+    "reply": "Responder",
+    "view": "Ver",
+    "markAllRead": "Marcar todas como lidas",
+    "viewAll": "Ver todas as notificações",
+    "account": "Conta",
+    "light": "Claro",
+    "dark": "Escuro",
+    "system": "Sistema",
+    "yourShop": "Sua Loja",
+    "docs": "Documentação",
+    "affiliate": "Afiliado",
+    "settings": "Configurações",
+    "logout": "Sair"
+  }
+}

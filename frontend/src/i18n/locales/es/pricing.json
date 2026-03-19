@@ -1,0 +1,21 @@
+{
+  "title": "Precios simples y transparentes",
+  "description": "Elige el plan adecuado para ti. Todos incluyen 14 días de prueba gratis.",
+  "monthly": "Mensual",
+  "yearly": "Anual",
+  "month": "mes",
+  "year": "año",
+  "popular": "Más Popular",
+  "custom": "Personalizado",
+  "contactForPricing": "Hablemos de tus necesidades",
+  "savePercent": "Ahorra {{percent}}%",
+  "yearlySavingsApplied": "Estás ahorrando {{percent}}% con facturación anual",
+  "equivalentMonthly": "~${{price}}/mes, facturado anualmente",
+  "compareFeatures": "Comparar todas las características",
+  "compareFeaturesDescription": "Descubre qué plan es ideal para tu equipo",
+  "faqTitle": "Preguntas Frecuentes",
+  "faqDescription": "Todo lo que necesitas saber sobre nuestros planes",
+  "ctaTitle": "¿Aún tienes preguntas?",
+  "ctaDescription": "¿No encuentras la respuesta? Nuestro equipo está aquí para ayudarte.",
+  "ctaHelpText": "Contáctanos en support@example.com o usa el chat."
+}

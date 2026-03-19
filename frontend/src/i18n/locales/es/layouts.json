@@ -1,0 +1,44 @@
+{
+  "vertical": {
+    "boxed": {
+      "title": "Barra Lateral Flotante",
+      "description": "Diseño flotante con márgenes y contenedores redondeados"
+    },
+    "edge": {
+      "title": "Barra Lateral de Borde",
+      "description": "Barra lateral de altura completa con contenido de borde a borde"
+    },
+    "doubleSidebar": {
+      "title": "Doble Barra Lateral",
+      "description": "Riel de iconos con panel secundario contextual"
+    }
+  },
+  "horizontal": {
+    "solid": {
+      "title": "Horizontal Sólido",
+      "description": "Barra de navegación única con fondo sólido"
+    },
+    "dark": {
+      "title": "Horizontal Oscuro",
+      "description": "Barra de navegación oscura independiente del tema"
+    },
+    "gradient": {
+      "title": "Horizontal Degradado",
+      "description": "Barra de navegación con fondo degradado"
+    },
+    "hero": {
+      "title": "Horizontal Hero",
+      "description": "Fondo hero con superposición de contenido"
+    },
+    "stacked": {
+      "title": "Horizontal Apilado",
+      "description": "Dos barras: utilidades + navegación"
+    }
+  },
+  "selector": {
+    "title": "Estilo de Diseño",
+    "description": "Elija su estilo de diseño preferido. Los cambios se aplican instantáneamente.",
+    "tip": "Consejo:",
+    "tipText": "Su preferencia de diseño se guarda automáticamente y persistirá entre sesiones."
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "title": "Preços simples e transparentes",
+  "description": "Escolha o plano ideal para você. Todos os planos incluem um teste gratuito de 14 dias.",
+  "monthly": "Mensal",
+  "yearly": "Anual",
+  "month": "mês",
+  "year": "ano",
+  "popular": "Mais Popular",
+  "custom": "Personalizado",
+  "contactForPricing": "Vamos conversar sobre suas necessidades",
+  "savePercent": "Economize {{percent}}%",
+  "yearlySavingsApplied": "Você está economizando {{percent}}% com o faturamento anual",
+  "equivalentMonthly": "~${{price}}/mês, cobrado anualmente",
+  "compareFeatures": "Comparar todos os recursos",
+  "compareFeaturesDescription": "Veja qual plano é o certo para sua equipe",
+  "faqTitle": "Perguntas Frequentes",
+  "faqDescription": "Tudo o que você precisa saber sobre nossos planos",
+  "ctaTitle": "Ainda tem dúvidas?",
+  "ctaDescription": "Não encontrou a resposta que procurava? Nossa equipe amigável está aqui para ajudar.",
+  "ctaHelpText": "Entre em contato conosco em support@example.com ou use o widget de chat."
+}

@@ -1,0 +1,8 @@
+{
+  "changelog": {
+    "title": "Registro de Alterações",
+    "description": "Acompanhe todas as atualizações, melhorias e lançamentos do Katalyst Admin Template.",
+    "version": "Versão {{version}}",
+    "footer": "Para mais detalhes, visite nossa documentação ou entre em contato com o suporte."
+  }
+}

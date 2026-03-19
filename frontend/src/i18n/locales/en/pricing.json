@@ -1,0 +1,21 @@
+{
+  "title": "Simple, transparent pricing",
+  "description": "Choose the plan that's right for you. All plans include a 14-day free trial.",
+  "monthly": "Monthly",
+  "yearly": "Yearly",
+  "month": "mo",
+  "year": "yr",
+  "popular": "Most Popular",
+  "custom": "Custom",
+  "contactForPricing": "Let's talk about your needs",
+  "savePercent": "Save {{percent}}%",
+  "yearlySavingsApplied": "You're saving {{percent}}% with annual billing",
+  "equivalentMonthly": "~${{price}}/month, billed annually",
+  "compareFeatures": "Compare all features",
+  "compareFeaturesDescription": "See which plan is right for your team",
+  "faqTitle": "Frequently Asked Questions",
+  "faqDescription": "Everything you need to know about our plans",
+  "ctaTitle": "Still have questions?",
+  "ctaDescription": "Can't find the answer you're looking for? Our friendly team is here to help.",
+  "ctaHelpText": "Contact us at support@example.com or use the chat widget."
+}

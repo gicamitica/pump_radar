@@ -1,0 +1,55 @@
+{
+  "command": {
+    "placeholder": "Pesquise ou digite um comando..."
+  },
+  "focus": {
+    "title": "Foco de Hoje",
+    "empty": "Nada para focar hoje",
+    "view": "Ver"
+  },
+  "activity": {
+    "title": "Atividade Recente",
+    "empty": "Nenhuma atividade recente",
+    "loadMore": "Carregar mais",
+    "loading": "Carregando..."
+  },
+  "recentModules": {
+    "title": "Usados Recentemente",
+    "empty": "Nenhum módulo recente"
+  },
+  "shortcuts": {
+    "title": "Atalhos",
+    "favorites": "Favoritos",
+    "all": "Todos os Atalhos",
+    "hint": "Pressione ? para ver todos os atalhos de teclado"
+  },
+  "powerTips": {
+    "trigger": "Dicas Poderosas",
+    "steps": {
+      "command": {
+        "title": "Central de Comandos",
+        "content": "Use Ctrl+K para pesquisar e executar comandos rapidamente. Digite para filtrar ações ou navegar para qualquer módulo."
+      },
+      "focus": {
+        "title": "Foco de Hoje",
+        "content": "Veja o que precisa da sua atenção hoje - convites pendentes, próximos eventos e tarefas vencendo."
+      },
+      "activity": {
+        "title": "Fluxo de Atividade",
+        "content": "Acompanhe toda a atividade do sistema em tempo real. Clique em qualquer item para ver detalhes."
+      },
+      "modules": {
+        "title": "Módulos Recentes",
+        "content": "Acesso rápido aos seus módulos mais visitados. Um clique para voltar."
+      },
+      "shortcuts": {
+        "title": "Atalhos de Teclado",
+        "content": "Marque seus atalhos favoritos como favoritos para referência rápida. Pressione ? a qualquer momento para ver todos os atalhos."
+      }
+    }
+  },
+  "errors": {
+    "loadFailed": "Falha ao carregar o hub de atividades",
+    "loadFailedDescription": "Houve um erro ao carregar o hub de atividades. Por favor, tente novamente mais tarde."
+  }
+}

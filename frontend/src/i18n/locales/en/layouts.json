@@ -1,0 +1,44 @@
+{
+  "vertical": {
+    "boxed": {
+      "title": "Boxed Sidebar",
+      "description": "Floating layout with margins and rounded containers"
+    },
+    "edge": {
+      "title": "Edge Sidebar",
+      "description": "Full-height sidebar with edge-to-edge content"
+    },
+    "doubleSidebar": {
+      "title": "Double Sidebar",
+      "description": "Icon rail with contextual secondary panel"
+    }
+  },
+  "horizontal": {
+    "solid": {
+      "title": "Horizontal Solid",
+      "description": "Single navigation bar with solid background"
+    },
+    "dark": {
+      "title": "Horizontal Dark",
+      "description": "Dark navigation bar regardless of theme"
+    },
+    "gradient": {
+      "title": "Horizontal Gradient",
+      "description": "Navigation bar with gradient background"
+    },
+    "hero": {
+      "title": "Horizontal Hero",
+      "description": "Hero backdrop with content overlap"
+    },
+    "stacked": {
+      "title": "Horizontal Stacked",
+      "description": "Two bars: utility bar + navigation bar"
+    }
+  },
+  "selector": {
+    "title": "Layout Style",
+    "description": "Choose your preferred layout style. Changes apply instantly.",
+    "tip": "Tip:",
+    "tipText": "Your layout preference is saved automatically and will persist across sessions."
+  }
+}
