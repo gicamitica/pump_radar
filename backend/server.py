@@ -146,7 +146,7 @@ async def send_verification_email(email: str, name: str, token: str):
     </div>"""
     try:
         await asyncio.to_thread(resend.Emails.send, {
-            "from": SENDER_EMAIL,
+            "from": f"PumpRadar <{SENDER_EMAIL}>",
             "to": [email],
             "subject": "Verify your email - PumpRadar",
             "html": html,
@@ -167,7 +167,7 @@ async def send_reset_email(email: str, token: str):
     </div>"""
     try:
         await asyncio.to_thread(resend.Emails.send, {
-            "from": SENDER_EMAIL,
+            "from": f"PumpRadar <{SENDER_EMAIL}>",
             "to": [email],
             "subject": "Password Reset - PumpRadar",
             "html": html,
