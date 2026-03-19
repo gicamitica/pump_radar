@@ -12,30 +12,30 @@ export class HomeRepository extends BaseRepository implements IHomeRepository {
   }
 
   async getDashboard(): Promise<HomeDashboard> {
-    return this.get<HomeDashboard>('/home/dashboard', 'Failed to load dashboard');
+    return this.get<HomeDashboard>('/api/home/dashboard', 'Failed to load dashboard');
   }
 
   async updateChecklistItem(itemId: string, completed: boolean): Promise<ChecklistItem> {
     return this.patch<ChecklistItem>(
-      `/home/checklist/${itemId}`,
+      `/api/home/checklist/${itemId}`,
       { completed },
       'Failed to update checklist item'
     );
   }
 
   async getTourState(): Promise<TourState> {
-    return this.get<TourState>('/home/tour', 'Failed to get tour state');
+    return this.get<TourState>('/api/home/tour', 'Failed to get tour state');
   }
 
   async completeTour(): Promise<TourState> {
-    return this.post<TourState>('/home/tour/complete', undefined, 'Failed to complete tour');
+    return this.post<TourState>('/api/home/tour/complete', undefined, 'Failed to complete tour');
   }
 
   async skipTour(): Promise<TourState> {
-    return this.post<TourState>('/home/tour/skip', undefined, 'Failed to skip tour');
+    return this.post<TourState>('/api/home/tour/skip', undefined, 'Failed to skip tour');
   }
 
   async resetTour(): Promise<TourState> {
-    return this.post<TourState>('/home/tour/reset', undefined, 'Failed to reset tour');
+    return this.post<TourState>('/api/home/tour/reset', undefined, 'Failed to reset tour');
   }
 }

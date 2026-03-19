@@ -1,7 +1,7 @@
 {
   "changelog": {
     "title": "Changelog",
-    "description": "Track all updates, improvements, and releases of Katalyst Admin Template.",
+    "description": "Track all updates, improvements, and releases of PumpRadar Admin Template.",
     "version": "Version {{version}}",
     "footer": "For more details, visit our documentation or contact support."
   }

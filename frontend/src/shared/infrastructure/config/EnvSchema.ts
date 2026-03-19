@@ -1,7 +1,7 @@
 import z from "zod";
 
 const EnvSchema = z.object({
-  VITE_APP_NAME: z.string().default('Katalyst Admin'),
+  VITE_APP_NAME: z.string().default('PumpRadar'),
   VITE_APP_ENVIRONMENT: z.string().default('development'),
   VITE_API_BASE_URL: z.string().default('http://localhost:5173'),
   VITE_API_TIMEOUT: z.string().default('30000'),

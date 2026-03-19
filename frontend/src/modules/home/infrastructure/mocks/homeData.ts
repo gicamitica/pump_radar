@@ -7,12 +7,12 @@ import type { HomeDashboard, ChecklistItem, TourState, ActivityItem, AppModule }
 export const mockUser = {
   id: 'user-1',
   name: 'John Doe',
-  email: 'john.doe@katalyst.io',
+  email: 'admin@pumpradar.io',
   avatarUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=john',
 };
 
 export const mockWorkspace = {
-  name: 'Katalyst Workspace',
+  name: 'PumpRadar',
   environment: 'development' as const,
 };
 

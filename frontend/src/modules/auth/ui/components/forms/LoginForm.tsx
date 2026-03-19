@@ -37,8 +37,8 @@ const LoginForm: React.FC<Props> = ({ onSuccess, forgotUrl }) => {
   const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<Values>({ 
     resolver: zodResolver(schema),
     defaultValues: {
-      email: 'admin@example.com',
-      password: 'password',
+      email: '',
+      password: '',
       remember: false,
     },
   });
@@ -65,26 +65,7 @@ const LoginForm: React.FC<Props> = ({ onSuccess, forgotUrl }) => {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <fieldset className="rounded-lg border border-border bg-muted/30 px-4 py-3">
-        <legend className="px-1 text-xs font-medium text-muted-foreground">
-          {t('demoCredentials.legend', 'Demo credentials')}
-        </legend>
-        <div className="text-xs text-muted-foreground">
-          {t('demoCredentials.instructions', 'Use the following credentials to sign in to the demo:')}
-        </div>
-        <div className="mt-2 grid gap-1 text-xs">
-          <div>
-            <span className="text-muted-foreground">{t('demoCredentials.email', 'Email')}:</span>{' '}
-            <code className="rounded bg-background px-1 py-0.5">admin@example.com</code>
-          </div>
-          <div>
-            <span className="text-muted-foreground">{t('demoCredentials.password', 'Password')}:</span>{' '}
-            <code className="rounded bg-background px-1 py-0.5">password</code>
-          </div>
-        </div>
-      </fieldset>
-
-      {error && (
+            {error && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
           {error}
         </div>

@@ -849,6 +849,35 @@ async def shutdown_event():
     client.close()
 
 # ─────────────────────────────────────────────
+# HOME MODULE STUBS (required by Katalyst template)
+# ─────────────────────────────────────────────
+@app.get("/api/home/dashboard")
+async def home_dashboard(user=Depends(get_current_user)):
+    """Home dashboard data for Katalyst's home module"""
+    u = doc_to_user(user)
+    return api_ok({
+        "user": {"name": u.get("name", "User"), "email": u["email"], "avatarUrl": None},
+        "workspace": {"name": "PumpRadar", "environment": "production"},
+        "stats": {"pumpSignals": 0, "dumpSignals": 0, "users": 1},
+        "checklist": [],
+        "recentActivity": [],
+        "apps": [],
+        "tourCompleted": True,
+    })
+
+@app.patch("/api/home/checklist/{item_id}")
+async def update_checklist(item_id: str, user=Depends(get_current_user)):
+    return api_ok({"message": "OK"})
+
+@app.get("/api/home/tour")
+async def get_tour(user=Depends(get_current_user)):
+    return api_ok({"completed": True, "skipped": True})
+
+@app.post("/api/home/tour/{action}")
+async def tour_action(action: str, user=Depends(get_current_user)):
+    return api_ok({"completed": True, "skipped": True})
+
+# ─────────────────────────────────────────────
 # HEALTH
 # ─────────────────────────────────────────────
 @app.get("/api/health")
