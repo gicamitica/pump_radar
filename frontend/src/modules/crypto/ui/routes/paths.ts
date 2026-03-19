@@ -5,4 +5,7 @@ export const CRYPTO_PATHS = {
   HISTORY: '/dashboard/history',
   SUBSCRIPTION: '/subscription',
   SUBSCRIPTION_SUCCESS: '/subscription/success',
+  AI_CHAT: '/ai-chat',
+  ADMIN: '/admin',
+  COIN_DETAIL: '/coin/:symbol',
 } as const;

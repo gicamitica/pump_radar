@@ -126,3 +126,22 @@ PumpRadar este un dashboard AI pentru semnale crypto Pump & Dump, construit pe t
 
 ## Dates
 - Initial implementation: 2026-03-19
+
+## Update: 2026-03-19 (Round 2)
+
+### Implemented:
+- Landing page publică la / cu hero, semnale preview, pricing, CTAs
+- Auth flow fix: register/login redirects la /dashboard
+- RegisterForm reconectat la backend real
+- Navigation sidebar curățat: doar PumpRadar items (Dashboard, PUMP, DUMP, AI Chat, Subscription)
+- Logo vectorial PumpRadar (geometric SVG - triunghi în cerc cu puncte busolă)  
+- Branding Branding.tsx actualizat cu noul logo + gradient text
+- Language switcher eliminat din topbar
+- SubscriptionBadge pulsant în topbar (Trial Free / Pro)
+- AvatarMenu redone: Dashboard, Abonament, AI Asistent, Admin (dacă e admin), Deconectare
+- AI Chat page (/ai-chat) - customer service Gemini în română
+- Admin Panel (/admin) - cu user management, edit subscription, delete
+- Coin Detail page (/coin/:symbol) - grafic preț+volum, AI analysis, exchanges DEX/CEX
+- Signal cards clickable → deschide coin detail în tab nou
+- Backend: /api/ai/chat, /api/crypto/coin/:symbol, /api/admin/* endpoints
+- owner@pumpradar.ro promovat la admin

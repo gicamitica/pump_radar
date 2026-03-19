@@ -43,9 +43,18 @@ const riskColor = { low: 'text-emerald-500', medium: 'text-amber-500', high: 'te
 
 function SignalCard({ signal, blurred, index }: { signal: Signal; blurred: boolean; index: number }) {
   const isPump = signal.signal_type === 'pump';
+  const detailUrl = `/coin/${signal.symbol}?type=${signal.signal_type}`;
+
+  const handleClick = () => {
+    if (!blurred) window.open(detailUrl, '_blank');
+  };
+
   return (
-    <Card className={`relative overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${blurred ? 'select-none' : ''}`}
-      data-testid={`signal-card-${signal.symbol}`}>
+    <Card
+      className={`relative overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${blurred ? 'select-none' : 'cursor-pointer'}`}
+      data-testid={`signal-card-${signal.symbol}`}
+      onClick={handleClick}
+    >
       {blurred && (
         <div className="absolute inset-0 backdrop-blur-md bg-background/60 z-10 flex flex-col items-center justify-center gap-2">
           <Lock className="h-6 w-6 text-muted-foreground" />
@@ -64,7 +73,10 @@ function SignalCard({ signal, blurred, index }: { signal: Signal; blurred: boole
               </div>
             )}
             <div>
-              <div className="font-bold text-base">{signal.symbol}</div>
+              <div className="font-bold text-base flex items-center gap-1">
+                {signal.symbol}
+                {!blurred && <span className="text-muted-foreground"><svg className="inline h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15,3 21,3 21,9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>}
+              </div>
               <div className="text-xs text-muted-foreground">{signal.name}</div>
             </div>
           </div>

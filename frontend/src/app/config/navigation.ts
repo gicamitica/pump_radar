@@ -171,82 +171,8 @@ export const navigationSections: NavGroup[] = [
       { id: 'dashboard', icon: 'bar-chart', to: '/dashboard', navRole: 'primary' },
       { id: 'pump-signals', icon: 'zap', to: '/dashboard/pump', navRole: 'primary' },
       { id: 'dump-signals', icon: 'alert-triangle', to: '/dashboard/dump', navRole: 'primary' },
+      { id: 'ai-chat', icon: 'message-circle', to: '/ai-chat', navRole: 'primary' },
       { id: 'subscription', icon: 'layers', to: '/subscription', navRole: 'primary' },
-    ],
-  },
-
-  /* ───────── Home ───────── */
-  {
-    id: 'home',
-    items: [
-      { id: 'admin-control', icon: 'home', to: '/', navRole: 'primary' },
-    ],
-  },
-
-  /* ───────── Pages ───────── */
-  {
-    id: 'pages',
-    items: [
-      { id: 'pricing', icon: 'file-text', to: '/pages/pricing', navRole: 'secondary' },
-      {
-        id: 'errorPages',
-        icon: 'alert-triangle',
-        navRole: 'secondary',
-        children: [
-          { id: '404', to: '/pages/errors/404' },
-          { id: '500', to: '/pages/errors/500' },
-        ],
-      },
-    ],
-  },
-
-  /* ───────── Authentication (FULL) ───────── */
-  {
-    id: 'auth',
-    presentation: {
-      layout: 'columns',
-    },
-    items: [
-      {
-        id: 'authMinimal',
-        icon: 'lock',
-        target: '_blank',
-        navRole: 'secondary',
-        children: [
-          { id: 'login', icon: 'lock', to: '/auth/login', target: '_blank' },
-          { id: 'register', icon: 'users', to: '/auth/register', target: '_blank' },
-          { id: 'forgot', icon: 'lock', to: '/auth/forgot-password', target: '_blank' },
-          { id: 'reset', icon: 'lock', to: '/auth/reset-password', target: '_blank' },
-          { id: 'twofactor', icon: 'shield-check', to: '/auth/mfa-verify', target: '_blank' },
-          { id: 'verify', icon: 'mail', to: '/auth/verify-email', target: '_blank' },
-          { id: 'lock', icon: 'lock', to: '/auth/lock', target: '_blank' },
-        ],
-      },
-      {
-        id: 'authHero',
-        icon: 'shield-check',
-        target: '_blank',
-        navRole: 'secondary',
-        children: [
-          { id: 'loginHero', icon: 'lock', to: '/auth/hero/login', target: '_blank' },
-          { id: 'registerHero', icon: 'users', to: '/auth/hero/register', target: '_blank' },
-          { id: 'forgotHero', icon: 'lock', to: '/auth/hero/forgot-password', target: '_blank' },
-          { id: 'resetHero', icon: 'lock', to: '/auth/hero/reset-password', target: '_blank' },
-          { id: 'twofactorHero', icon: 'shield-check', to: '/auth/hero/mfa-verify', target: '_blank' },
-          { id: 'verifyHero', icon: 'mail', to: '/auth/hero/verify-email', target: '_blank' },
-          { id: 'lockHero', icon: 'lock', to: '/auth/lock', target: '_blank' },
-        ],
-      },
-    ],
-  },
-
-  /* ───────── System ───────── */
-  {
-    id: 'system',
-    items: [
-      { id: 'docs', icon: 'book-open', to: 'https://docs.5studios.net/katalyst', target: '_blank', navRole: 'utility' },
-      { id: 'changelog', icon: 'git-commit', to: '/system/changelog', navRole: 'utility' },
-      { id: 'layout-builder', icon: 'palette', to: '/playground/layout-builder', navRole: 'utility' },
     ],
   },
 ];

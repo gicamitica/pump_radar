@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <!-- Outer circle ring -->
+  <circle cx="50" cy="50" r="44" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.6"/>
+  <circle cx="50" cy="50" r="40" stroke="currentColor" stroke-width="0.5" fill="none" opacity="0.4"/>
+
+  <!-- Radial tick marks inside circle -->
+  <g stroke="currentColor" stroke-width="0.5" opacity="0.35">
+    <line x1="50" y1="10" x2="50" y2="14"/>
+    <line x1="50" y1="86" x2="50" y2="90"/>
+    <line x1="10" y1="50" x2="14" y2="50"/>
+    <line x1="86" y1="50" x2="90" y2="50"/>
+    <line x1="21.7" y1="21.7" x2="24.5" y2="24.5"/>
+    <line x1="75.5" y1="75.5" x2="78.3" y2="78.3"/>
+    <line x1="78.3" y1="21.7" x2="75.5" y2="24.5"/>
+    <line x1="24.5" y1="75.5" x2="21.7" y2="78.3"/>
+    <line x1="34" y1="12.3" x2="35.4" y2="16"/>
+    <line x1="66" y1="12.3" x2="64.6" y2="16"/>
+    <line x1="34" y1="87.7" x2="35.4" y2="84"/>
+    <line x1="66" y1="87.7" x2="64.6" y2="84"/>
+    <line x1="12.3" y1="34" x2="16" y2="35.4"/>
+    <line x1="12.3" y1="66" x2="16" y2="64.6"/>
+    <line x1="87.7" y1="34" x2="84" y2="35.4"/>
+    <line x1="87.7" y1="66" x2="84" y2="64.6"/>
+  </g>
+
+  <!-- Compass points - Top -->
+  <path d="M50 4 L53.5 13 L50 10 L46.5 13 Z" fill="currentColor"/>
+  <!-- Bottom -->
+  <path d="M50 96 L53.5 87 L50 90 L46.5 87 Z" fill="currentColor"/>
+  <!-- Left -->
+  <path d="M4 50 L13 46.5 L10 50 L13 53.5 Z" fill="currentColor"/>
+  <!-- Right -->
+  <path d="M96 50 L87 46.5 L90 50 L87 53.5 Z" fill="currentColor"/>
+
+  <!-- Large triangle pointing UP with 3D bevel effect -->
+  <!-- Outer triangle -->
+  <path d="M50 16 L79 68 L21 68 Z" stroke="currentColor" stroke-width="2" fill="none"/>
+  <!-- Inner bevel left face (dark) -->
+  <path d="M50 16 L21 68 L27 68 L50 24 Z" fill="currentColor" opacity="0.15"/>
+  <!-- Inner bevel right face (lighter) -->
+  <path d="M50 16 L79 68 L73 68 L50 24 Z" fill="currentColor" opacity="0.08"/>
+  <!-- Inner face middle highlight -->
+  <path d="M50 24 L73 68 L27 68 Z" fill="currentColor" opacity="0.05"/>
+  <!-- Center highlight line -->
+  <line x1="50" y1="16" x2="50" y2="68" stroke="currentColor" stroke-width="0.5" opacity="0.3"/>
+
+  <!-- Small triangle pointing DOWN (inside, centered lower) -->
+  <path d="M50 74 L62 56 L38 56 Z" stroke="currentColor" stroke-width="1.5" fill="currentColor" opacity="0.25"/>
+  <path d="M50 74 L62 56 L38 56 Z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+</svg>

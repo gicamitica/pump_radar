@@ -61,7 +61,8 @@
     "dashboard": "Signals Dashboard",
     "pump-signals": "PUMP Signals",
     "dump-signals": "DUMP Signals",
-    "subscription": "Subscription"
+    "subscription": "Subscription",
+    "ai-chat": "AI Assistant"
   },
   "steps": {
     "teams": {

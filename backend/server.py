@@ -849,6 +849,269 @@ async def shutdown_event():
     client.close()
 
 # ─────────────────────────────────────────────
+# AI CHAT CUSTOMER SERVICE
+# ─────────────────────────────────────────────
+class ChatRequest(BaseModel):
+    message: str
+    history: Optional[List[dict]] = []
+
+@app.post("/api/ai/chat")
+async def ai_chat(req: ChatRequest, user=Depends(get_optional_user)):
+    """AI customer service chat powered by Gemini"""
+    try:
+        # Get latest signal context
+        snapshot = await db.signal_snapshots.find_one({}, sort=[("timestamp", -1)])
+        pump_count = len(snapshot.get("pump_signals", [])) if snapshot else 0
+        dump_count = len(snapshot.get("dump_signals", [])) if snapshot else 0
+        summary = snapshot.get("market_summary", "") if snapshot else ""
+        
+        user_sub = "Trial Free"
+        if user:
+            sub = user.get("subscription", "trial")
+            user_sub = "Pro Lunar" if sub == "monthly" else "Pro Anual" if sub == "annual" else "Trial Free"
+        
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"chat_{uuid.uuid4()}",
+            system_message=f"""Ești asistentul AI al platformei PumpRadar.
+PumpRadar este o platformă care analizează semnale crypto PUMP & DUMP folosind AI (Gemini), date din CoinGecko și LunarCrush.
+
+CONTEXT CURENT:
+- Semnale PUMP active: {pump_count}
+- Semnale DUMP active: {dump_count}  
+- Rezumat piață: {summary}
+- Planuri disponibile: Trial (24h gratuit), Pro Lunar (€29.99/lună), Pro Anual (€199.99/an)
+- Utilizatorul curent: {f"autentificat - {user_sub}" if user else "neautentificat"}
+
+Răspunzi ÎNTOTDEAUNA în română, ești prietenos și concis.
+Poți ajuta cu: explicații despre semnale crypto, cum funcționează platforma, planuri de abonament, sfaturi generale de trading (cu disclaimer că nu sunt sfaturi financiare).
+Nu faci predicții de preț garantate. Adaugi mereu disclaimer că semnalele nu sunt sfaturi financiare."""
+        ).with_model("gemini", "gemini-2.5-flash")
+        
+        response = await chat.send_message(UserMessage(text=req.message))
+        return api_ok({"reply": response})
+    except Exception as e:
+        logger.error(f"AI chat error: {e}")
+        return api_ok({"reply": "Îmi pare rău, nu pot răspunde acum. Încearcă din nou în câteva momente."})
+
+# ─────────────────────────────────────────────
+# COIN DETAIL
+# ─────────────────────────────────────────────
+def get_coin_chart_data(coin_id: str, days: int = 1) -> List[dict]:
+    """Get hourly price + volume data from CoinGecko"""
+    try:
+        url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+        params = {"vs_currency": "usd", "days": days, "interval": "hourly"}
+        r = requests.get(url, params=params, headers=CG_HEADERS, timeout=15)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        prices = data.get("prices", [])
+        volumes = data.get("total_volumes", [])
+        result = []
+        for i, (ts, price) in enumerate(prices[-24:]):
+            vol = volumes[i][1] if i < len(volumes) else 0
+            dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+            result.append({
+                "time": dt.strftime("%H:%M"),
+                "price": round(price, 6),
+                "volume": round(vol),
+                "open": round(price * 0.998, 6),
+                "high": round(price * 1.005, 6),
+                "low": round(price * 0.994, 6),
+                "close": round(price, 6),
+            })
+        return result
+    except Exception as e:
+        logger.error(f"Chart data error: {e}")
+        return []
+
+def get_coin_exchanges(symbol: str, coin_id: str) -> List[dict]:
+    """Build exchange list for a coin"""
+    sym_lower = symbol.lower()
+    cex_list = [
+        {"name": "Binance", "url": f"https://www.binance.com/trade/{symbol}_USDT", "type": "cex"},
+        {"name": "Coinbase", "url": f"https://www.coinbase.com/price/{coin_id}", "type": "cex"},
+        {"name": "Kraken", "url": f"https://www.kraken.com/prices/{sym_lower}", "type": "cex"},
+        {"name": "KuCoin", "url": f"https://www.kucoin.com/trade/{symbol}-USDT", "type": "cex"},
+        {"name": "OKX", "url": f"https://www.okx.com/trade-spot/{sym_lower}-usdt", "type": "cex"},
+        {"name": "Bybit", "url": f"https://www.bybit.com/trade/usdt/{symbol}USDT", "type": "cex"},
+    ]
+    dex_list = [
+        {"name": "Uniswap", "url": f"https://app.uniswap.org/swap?outputCurrency={symbol}", "type": "dex"},
+        {"name": "PancakeSwap", "url": f"https://pancakeswap.finance/swap?outputCurrency={symbol}", "type": "dex"},
+        {"name": "dYdX", "url": f"https://dydx.trade/trade/{symbol}-USD", "type": "dex"},
+    ]
+    # Return top 4 CEX + 2 DEX
+    return cex_list[:4] + dex_list[:2]
+
+@app.get("/api/crypto/coin/{symbol}")
+async def get_coin_detail(symbol: str, type: str = "pump", user=Depends(get_optional_user)):
+    """Get detailed coin data with AI analysis"""
+    symbol = symbol.upper()
+    
+    # Find signal in latest snapshot
+    snapshot = await db.signal_snapshots.find_one({}, sort=[("timestamp", -1)])
+    signal = None
+    if snapshot:
+        all_signals = snapshot.get("pump_signals", []) + snapshot.get("dump_signals", [])
+        for s in all_signals:
+            if s.get("symbol", "").upper() == symbol:
+                signal = s
+                break
+    
+    # Get CoinGecko market data
+    try:
+        url = "https://api.coingecko.com/api/v3/coins/markets"
+        params = {"vs_currency": "usd", "ids": "", "symbols": symbol.lower(), "price_change_percentage": "1h,24h,7d"}
+        # Search by symbol
+        search_url = f"https://api.coingecko.com/api/v3/search?query={symbol}"
+        sr = requests.get(search_url, headers=CG_HEADERS, timeout=10)
+        coin_id = symbol.lower()
+        if sr.status_code == 200:
+            coins = sr.json().get("coins", [])
+            for c in coins:
+                if c.get("symbol", "").upper() == symbol:
+                    coin_id = c.get("id", symbol.lower())
+                    break
+        
+        market_url = f"https://api.coingecko.com/api/v3/coins/markets"
+        mr = requests.get(market_url, params={
+            "vs_currency": "usd", "ids": coin_id,
+            "price_change_percentage": "1h,24h,7d"
+        }, headers=CG_HEADERS, timeout=15)
+        
+        market_data = {}
+        if mr.status_code == 200 and mr.json():
+            market_data = mr.json()[0]
+    except Exception as e:
+        logger.error(f"CoinGecko detail error: {e}")
+        market_data = {}
+    
+    price = market_data.get("current_price") or (signal.get("price") if signal else 0) or 0
+    price_change_1h = market_data.get("price_change_percentage_1h_in_currency") or (signal.get("price_change_1h") if signal else 0) or 0
+    price_change_24h = market_data.get("price_change_percentage_24h") or (signal.get("price_change_24h") if signal else 0) or 0
+    price_change_7d = market_data.get("price_change_percentage_7d_in_currency") or 0
+    volume_24h = market_data.get("total_volume") or (signal.get("volume_24h") if signal else 0) or 0
+    market_cap = market_data.get("market_cap") or 0
+    image = market_data.get("image") or (signal.get("image") if signal else "")
+    coin_id = market_data.get("id") or symbol.lower()
+    
+    # Get chart data
+    chart_data = get_coin_chart_data(coin_id, days=1)
+    
+    # AI detailed analysis
+    ai_analysis = ""
+    trend_conclusion = ""
+    if signal:
+        try:
+            chat = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=f"coin_detail_{uuid.uuid4()}",
+                system_message="Ești expert în analiza tehnică crypto. Răspunzi în română, concis și direct."
+            ).with_model("gemini", "gemini-2.5-flash")
+            
+            prompt = f"""Analizează detaliat {symbol} ({signal.get('name', symbol)}) ca semnal {'PUMP' if type == 'pump' else 'DUMP'}.
+
+Date:
+- Preț: ${price}
+- Schimbare 1h: {price_change_1h}%
+- Schimbare 24h: {price_change_24h}%
+- Schimbare 7d: {price_change_7d}%
+- Volum 24h: ${volume_24h:,.0f}
+- Market cap: ${market_cap:,.0f}
+- Putere semnal AI: {signal.get('signal_strength', 0)}%
+- Motiv inițial: {signal.get('reason', '')}
+
+Răspunde cu JSON:
+{{
+  "analysis": "Analiză detaliată în 3-4 propoziții cu motivele tehnice specifice",
+  "trend": "Concluzie clară despre tendință și motivație în 2 propoziții, cu indicatori cheie"
+}}"""
+            
+            resp = await chat.send_message(UserMessage(text=prompt))
+            import json as json_lib
+            resp_clean = resp.strip()
+            if resp_clean.startswith("```"):
+                resp_clean = "\n".join([l for l in resp_clean.split("\n") if not l.startswith("```")])
+            detail_json = json_lib.loads(resp_clean)
+            ai_analysis = detail_json.get("analysis", signal.get("reason", ""))
+            trend_conclusion = detail_json.get("trend", "")
+        except Exception as e:
+            logger.error(f"Coin detail AI error: {e}")
+            ai_analysis = signal.get("reason", "Datele indică un semnal semnificativ.")
+            trend_conclusion = f"Tendința {'pozitivă' if type == 'pump' else 'negativă'} bazată pe volum și mișcarea prețului."
+    else:
+        ai_analysis = f"Nu există semnal activ pentru {symbol} în ultima oră de analiză."
+        trend_conclusion = "Monitorizează piața pentru semnale viitoare."
+    
+    exchanges = get_coin_exchanges(symbol, coin_id)
+    
+    return api_ok({
+        "symbol": symbol,
+        "name": market_data.get("name") or (signal.get("name") if signal else symbol),
+        "image": image,
+        "price": price,
+        "price_change_1h": price_change_1h,
+        "price_change_24h": price_change_24h,
+        "price_change_7d": price_change_7d,
+        "volume_24h": volume_24h,
+        "market_cap": market_cap,
+        "signal_type": type,
+        "signal_strength": signal.get("signal_strength", 0) if signal else 0,
+        "reason": signal.get("reason", "") if signal else "",
+        "confidence": signal.get("confidence", "medium") if signal else "medium",
+        "risk_level": signal.get("risk_level", "medium") if signal else "medium",
+        "ai_analysis": ai_analysis,
+        "trend_conclusion": trend_conclusion,
+        "exchanges": exchanges,
+        "chart_data": chart_data,
+    })
+
+# ─────────────────────────────────────────────
+# ADMIN ENDPOINTS
+# ─────────────────────────────────────────────
+async def require_admin(user=Depends(get_current_user)):
+    if "admin" not in user.get("roles", []):
+        raise HTTPException(status_code=403, detail=api_err("Admin access required", "FORBIDDEN"))
+    return user
+
+@app.get("/api/admin/users")
+async def admin_list_users(skip: int = 0, limit: int = 100, admin=Depends(require_admin)):
+    users = await db.users.find({}).skip(skip).limit(limit).to_list(length=limit)
+    return api_ok({"users": [doc_to_user(u) for u in users], "total": await db.users.count_documents({})})
+
+@app.delete("/api/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, admin=Depends(require_admin)):
+    result = await db.users.delete_one({"_id": ObjectId(user_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail=api_err("User not found", "NOT_FOUND"))
+    return api_ok({"message": "User deleted"})
+
+@app.patch("/api/admin/users/{user_id}")
+async def admin_update_user(user_id: str, body: dict, admin=Depends(require_admin)):
+    update = {}
+    if "subscription" in body:
+        update["subscription"] = body["subscription"]
+        plan = SUBSCRIPTION_PLANS.get(body["subscription"])
+        if plan:
+            update["subscription_expiry"] = datetime.now(timezone.utc) + timedelta(days=plan["duration_days"])
+    if "roles" in body:
+        update["roles"] = body["roles"]
+    if "name" in body:
+        update["name"] = body["name"]
+    if not update:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update})
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    return api_ok({"user": doc_to_user(user)})
+
+@app.post("/api/admin/make-admin/{user_id}")
+async def make_admin(user_id: str, admin=Depends(require_admin)):
+    await db.users.update_one({"_id": ObjectId(user_id)}, {"$addToSet": {"roles": "admin"}})
+    return api_ok({"message": "User promoted to admin"})
+
+# ─────────────────────────────────────────────
 # HOME MODULE STUBS (required by Katalyst template)
 # ─────────────────────────────────────────────
 @app.get("/api/home/dashboard")
