@@ -1,20 +1,5 @@
--e 
-# Environment files
 *.env
 *.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
+__pycache__/
+*.pyc
+backend/.telegram_sessions/

@@ -1,7 +1,6 @@
 import React from 'react';
 import { cn } from '@/shadcn/lib/utils';
 import { useLayout } from '@/shared/ui/layouts/app';
-import { useTranslation } from 'react-i18next';
 
 interface BrandingProps {
   className?: string;
@@ -32,7 +31,6 @@ const PumpRadarLogo: React.FC<{ className?: string }> = ({ className }) => (
 
 export const Branding: React.FC<BrandingProps> = ({ className }) => {
   const { collapsed } = useLayout();
-  const { t } = useTranslation('navigation');
 
   return (
     <div className={cn('flex items-center gap-2', collapsed && 'justify-center', className)}>

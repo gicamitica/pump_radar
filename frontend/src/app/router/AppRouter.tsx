@@ -23,11 +23,11 @@ import ProtectedRoute from './ProtectedRoute';
 import ErrorBoundary from '@/app/providers/ErrorBoundary';
 import type { ModuleRoute } from '@/core/router/types';
 import { NAVIGATION_PATHS } from '@/core/router/paths';
-import Error404Page from '@/modules/pages/errors/ui/pages/Error404Page';
 import { RouteTracker } from './RouteTracker';
 
 // Lazy load AuthCallback for OAuth
 const AuthCallback = lazy(() => import('@/modules/auth/ui/pages/AuthCallback'));
+const Error404Page = lazy(() => import('@/modules/pages/errors/ui/pages/Error404Page'));
 
 // Loading fallback with skeleton
 const LoadingFallback = () => (
@@ -45,7 +45,11 @@ const UnauthorizedPage: React.FC = () => (
   </div>
 );
 
-const NotFoundPage: React.FC = () => <Error404Page />;
+const NotFoundPage: React.FC = () => (
+  <Suspense fallback={<LoadingFallback />}>
+    <Error404Page />
+  </Suspense>
+);
 
 /**
  * Renders a single route with proper component wrapping
@@ -127,7 +131,7 @@ const InnerRouter: React.FC = () => {
   } = groupRoutesByLayout(allRoutes);
 
   // Check URL fragment for OAuth session_id - do this SYNCHRONOUSLY before any other routing
-  if (location.hash?.includes('session_id=')) {
+  if (location.pathname === '/auth/callback' || location.hash?.includes('session_id=') || location.search?.includes('session_id=')) {
     return (
       <Suspense fallback={<LoadingFallback />}>
         <AuthCallback />

@@ -17,6 +17,8 @@ export interface AuthUser {
   roles: Role[];
   avatar?: string;
   emailVerified?: boolean;
+  subscription?: string;
+  subscriptionExpiry?: string | null;
   createdAt?: string;
 }
 
@@ -89,8 +91,6 @@ export interface LoginResponse {
 
 export interface RegisterResponse {
   user: AuthUser;
-  accessToken: string;
-  refreshToken: string;
   message?: string;
 }
 
@@ -106,6 +106,8 @@ export interface ResetPasswordResponse {
 export interface VerifyEmailResponse {
   message: string;
   user?: AuthUser;
+  accessToken?: string;
+  refreshToken?: string;
 }
 
 export interface MfaSetupResponse {

@@ -76,7 +76,7 @@ export const ShowcaseSidebar: React.FC<ShowcaseSidebarProps> = ({ onNavigate }) 
           <div>
             <Button 
               className="w-full bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20 mb-3"
-              onClick={() => handleLinkClick('/pages/pricing')}
+              onClick={() => handleLinkClick('/subscription')}
             >
               {t('mega.showcase.getStarted', { defaultValue: 'Get Started Today' })}
             </Button>

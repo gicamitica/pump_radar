@@ -27,11 +27,11 @@ print('User ID: ' + userId);
 ## Step 2: Test Backend API
 ```bash
 # Test auth endpoint
-curl -X GET "https://crypto-pump-1.preview.emergentagent.com/api/auth/me" \
+curl -X GET "https://pump.arbitrajz.com/api/auth/me" \
   -H "Authorization: Bearer YOUR_SESSION_TOKEN"
 
 # Test protected endpoints
-curl -X GET "https://crypto-pump-1.preview.emergentagent.com/api/crypto/signals" \
+curl -X GET "https://pump.arbitrajz.com/api/crypto/signals" \
   -H "Authorization: Bearer YOUR_SESSION_TOKEN"
 ```
 
@@ -41,13 +41,13 @@ curl -X GET "https://crypto-pump-1.preview.emergentagent.com/api/crypto/signals"
 await page.context.add_cookies([{
     "name": "session_token",
     "value": "YOUR_SESSION_TOKEN",
-    "domain": "pump-radar-3.preview.emergentagent.com",
+    "domain": "pump.arbitrajz.com",
     "path": "/",
     "httpOnly": true,
     "secure": true,
     "sameSite": "None"
 }]);
-await page.goto("https://crypto-pump-1.preview.emergentagent.com/dashboard");
+await page.goto("https://pump.arbitrajz.com/dashboard");
 ```
 
 ## Success Indicators

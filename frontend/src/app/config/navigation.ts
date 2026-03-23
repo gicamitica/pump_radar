@@ -68,7 +68,8 @@ export type SidebarIconKey =
   | 'heart-pulse'
   | 'headphones'
   | 'video'
-  | 'clock';
+  | 'clock'
+  | 'telegram';
 
 export type NavBadge = {
   type: 'count' | 'dot' | 'label' | 'icon' | 'emoji';
@@ -168,10 +169,11 @@ export const navigationSections: NavGroup[] = [
   {
     id: 'pumpradar',
     items: [
-      { id: 'dashboard', icon: 'bar-chart', iconColor: 'blue', to: '/dashboard', navRole: 'primary' },
-      { id: 'pump-signals', icon: 'zap', iconColor: 'emerald', to: '/dashboard/pump', navRole: 'primary' },
-      { id: 'dump-signals', icon: 'alert-triangle', iconColor: 'rose', to: '/dashboard/dump', navRole: 'primary' },
+      { id: 'dashboard', icon: 'bar-chart', iconColor: 'blue', to: '/dashboard', navRole: 'primary', exact: true },
+      { id: 'pump-signals', icon: 'zap', iconColor: 'emerald', to: '/dashboard/pump', navRole: 'primary', exact: true },
+      { id: 'dump-signals', icon: 'alert-triangle', iconColor: 'rose', to: '/dashboard/dump', navRole: 'primary', exact: true },
       { id: 'history', icon: 'clock', iconColor: 'slate', to: '/history', navRole: 'primary' },
+      { id: 'telegram-signals', icon: 'telegram', iconColor: 'cyan', to: '/telegram-signals', navRole: 'primary' },
       { id: 'watchlist', icon: 'heart-pulse', iconColor: 'amber', to: '/watchlist', navRole: 'primary' },
       { id: 'ai-chat', icon: 'message-circle', iconColor: 'purple', to: '/ai-chat', navRole: 'primary' },
       { id: 'subscription', icon: 'layers', iconColor: 'cyan', to: '/subscription', navRole: 'primary' },

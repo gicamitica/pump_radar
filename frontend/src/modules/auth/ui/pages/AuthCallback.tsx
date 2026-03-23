@@ -6,9 +6,25 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
+import { useService } from '@/app/providers/useDI';
+import { AUTH_SYMBOLS } from '@/modules/auth/di/symbols';
+import type { IAuthService } from '@/modules/auth/application/ports/IAuthService';
+
+const extractSessionId = (): string | null => {
+  const searchParams = new URLSearchParams(window.location.search);
+  const searchSessionId = searchParams.get('session_id');
+  if (searchSessionId) {
+    return searchSessionId;
+  }
+
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+  const hashParams = new URLSearchParams(hash);
+  return hashParams.get('session_id');
+};
 
 const AuthCallback: React.FC = () => {
   const navigate = useNavigate();
+  const authService = useService<IAuthService>(AUTH_SYMBOLS.IAuthService);
   const hasProcessed = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,10 +35,7 @@ const AuthCallback: React.FC = () => {
 
     const processAuth = async () => {
       try {
-        // Extract session_id from URL fragment
-        const hash = window.location.hash;
-        const params = new URLSearchParams(hash.replace('#', ''));
-        const sessionId = params.get('session_id');
+        const sessionId = extractSessionId();
 
         if (!sessionId) {
           setError('No session ID found. Please try logging in again.');
@@ -37,13 +50,13 @@ const AuthCallback: React.FC = () => {
 
         if (response.data.success) {
           const { user, accessToken, refreshToken } = response.data.data;
-          
-          // Store tokens
-          localStorage.setItem('pumpradar_auth_token', accessToken);
-          localStorage.setItem('pumpradar_auth_token_refresh', refreshToken);
-          localStorage.setItem('pumpradar_auth_current_user', JSON.stringify(user));
-          
-          // Clear hash from URL and redirect to dashboard
+
+          await authService.completeLogin(
+            user,
+            { accessToken, refreshToken },
+            true
+          );
+
           window.history.replaceState(null, '', '/dashboard');
           navigate('/dashboard', { replace: true, state: { user } });
         } else {
@@ -61,7 +74,7 @@ const AuthCallback: React.FC = () => {
     };
 
     processAuth();
-  }, [navigate]);
+  }, [authService, navigate]);
 
   if (error) {
     return (

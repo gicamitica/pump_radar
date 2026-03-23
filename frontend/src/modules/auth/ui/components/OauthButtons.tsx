@@ -1,14 +1,9 @@
 import React from 'react';
-import OauthButton from '@/components/forms/buttons/OauthButton';
-import { useTranslation } from 'react-i18next';
 
 const OauthButtons: React.FC = () => {
-  const { t } = useTranslation('auth');
-
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <OauthButton>{t('continueWithGoogle','Continue with Google')}</OauthButton>
-      <OauthButton>{t('continueWithApple','Continue with Apple')}</OauthButton>
+    <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+      Google sign-in is temporarily unavailable. Use your email and password to continue.
     </div>
   );
 };

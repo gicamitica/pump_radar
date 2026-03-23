@@ -48,13 +48,15 @@ const LoginForm: React.FC<Props> = ({ onSuccess, forgotUrl }) => {
       setError(null);
       logger.info('Login form submitted', { email: values.email });
       
-      await auth.login(values);
+      const user = await auth.login(values);
       
       logger.info('Login successful, redirecting...');
       
-      // Call onSuccess callback if provided
       if (onSuccess) {
         onSuccess();
+      } else {
+        const targetPath = user.subscription === 'free' ? '/subscription' : '/dashboard';
+        window.location.assign(targetPath);
       }
     } catch (err: unknown) {
       logger.error('Login failed', err);

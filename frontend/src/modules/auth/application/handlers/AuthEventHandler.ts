@@ -14,7 +14,6 @@ import { CORE_SYMBOLS } from '@/core/di/symbols';
 import type { IEventBus } from '@/shared/infrastructure/events/EventBus';
 import type { ILogger } from '@/shared/utils/Logger';
 import type { INavigationService } from '@/shared/infrastructure/navigation/NavigationService';
-import type { IConfig } from '@/shared/infrastructure/config/Config';
 import type { AuthUser } from '@/modules/auth/domain/models/AuthModels';
 
 export const AUTH_EVENTS = {
@@ -60,8 +59,7 @@ export class AuthEventHandler {
   constructor(
     @inject(CORE_SYMBOLS.IEventBus) private eventBus: IEventBus,
     @inject(CORE_SYMBOLS.ILogger) private logger: ILogger,
-    @inject(CORE_SYMBOLS.INavigationService) private navigationService: INavigationService,
-    @inject(CORE_SYMBOLS.IConfig) private config: IConfig
+    @inject(CORE_SYMBOLS.INavigationService) private navigationService: INavigationService
   ) {
     this.setupEventListeners();
   }
@@ -76,10 +74,6 @@ export class AuthEventHandler {
           email: payload.user.email,
           roles: payload.user.roles,
         });
-
-        // Navigate to dashboard after successful login
-        this.logger.info('Navigating to dashboard after login');
-        this.navigationService.navigateTo('/dashboard');
 
         // TODO: Track analytics
         // analytics.track('Login Success', { userId: payload.user.id });
@@ -109,9 +103,9 @@ export class AuthEventHandler {
       (payload) => {
         this.logger.info('User logged out', { userId: payload.userId });
 
-        // Navigate to login page after logout
-        this.logger.info('Navigating to login page after logout');
-        this.navigationService.navigateTo(this.config.auth.loginPath);
+        // Navigate to landing page after logout
+        this.logger.info('Navigating to landing page after logout');
+        this.navigationService.navigateTo('/');
 
         // TODO: Clear user-specific data
         // userPreferencesService.clear();

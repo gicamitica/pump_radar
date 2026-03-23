@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { TrendingUp, TrendingDown, RefreshCw, Clock, Zap, AlertTriangle, Lock, BarChart3, Activity, Sparkles, Brain, ExternalLink } from 'lucide-react';
+import { TrendingUp, TrendingDown, RefreshCw, Clock, Zap, AlertTriangle, Lock, BarChart3, Activity, Sparkles, Brain, ExternalLink, ShieldCheck, Target, Radio, Flame, TimerReset } from 'lucide-react';
 import { Card, CardContent } from '@/shared/ui/shadcn/components/ui/card';
-import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
 import { Button } from '@/shared/ui/shadcn/components/ui/button';
+import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/shadcn/components/ui/tabs';
+import { readStoredToken } from '@/shared/utils/tokenStorage';
 import AccuracyTracker from '../components/AccuracyTracker';
 
 interface Signal {
@@ -15,35 +16,704 @@ interface Signal {
   volume_24h?: number; social_volume?: number; sentiment?: number;
   galaxy_score?: number; image?: string; signal_type: 'pump' | 'dump';
   is_trending?: boolean;
+  preferred_venue?: { name: string; type: 'cex' | 'dex' | 'swap'; pair?: string };
+  manipulation_profile?: {
+    manipulation_score?: number;
+    coordinated_hype_score?: number;
+    social_burst_score?: number;
+    liquidity_trap_score?: number;
+    early_entry_score?: number;
+    dump_risk_score?: number;
+    risk_metric_label?: string;
+    stage?: string;
+    telegram_mentions?: number;
+    telegram_sources?: number;
+    warning_flags?: string[];
+    summary?: string;
+  };
+  manipulation_timeline?: {
+    phase: string;
+    status: string;
+    tone: string;
+    detail: string;
+  }[];
+  decision_engine?: {
+    trade_readiness?: string;
+    execution_score?: number;
+    liquidity_score?: number;
+    average_spread_pct?: number | null;
+    entry_zone?: { low: number; high: number };
+    risk_reward?: number;
+  };
 }
 interface SignalData {
   pump_signals: Signal[]; dump_signals: Signal[]; market_summary: string;
   last_updated: string | null; coins_analyzed: number; has_full_access: boolean;
   fear_greed?: { value: number; classification: string }; trending?: string[];
 }
+interface SubscriptionInfo {
+  subscription: string;
+  is_active: boolean;
+  expiry?: string | null;
+  stripe_status?: string | null;
+  pending_plan?: string | null;
+  next_billing_at?: string | null;
+}
 
-const getToken = () => {
-  const raw = localStorage.getItem('pumpradar_auth_token') || sessionStorage.getItem('pumpradar_auth_token');
-  if (!raw) return null;
-  try { const p = JSON.parse(raw); return typeof p === 'string' ? p : raw; } catch { return raw; }
-};
+interface TelegramConsensusSymbol {
+  symbol: string;
+  mentions: number;
+  bullish_mentions: number;
+  bearish_mentions: number;
+  unique_sources: number;
+  avg_score: number;
+  stance: 'bullish' | 'bearish' | 'mixed';
+  rumor_level: 'low' | 'medium' | 'high';
+  source_names: string[];
+  latest_posted_at?: string | null;
+}
+
+interface TelegramConsensusData {
+  headline: string;
+  hours: number;
+  active_sources: string[];
+  signal_count: number;
+  bullish_mentions: number;
+  bearish_mentions: number;
+  hot_symbols: TelegramConsensusSymbol[];
+}
+
+function deriveConsensusBadge(symbol: TelegramConsensusSymbol): { label: string; className: string } {
+  const highBuzz = symbol.rumor_level === 'high' || symbol.mentions >= 4;
+  const lowQuality = symbol.avg_score < 45 || symbol.stance === 'mixed';
+  const strongBreadth = symbol.unique_sources >= 2;
+
+  if (highBuzz && lowQuality) {
+    return { label: 'overhyped', className: 'bg-amber-500/15 text-amber-400' };
+  }
+  if (lowQuality || symbol.avg_score < 55) {
+    return { label: 'risky', className: 'bg-red-500/15 text-red-400' };
+  }
+  if (strongBreadth && symbol.avg_score >= 55) {
+    return { label: 'clean', className: 'bg-emerald-500/15 text-emerald-400' };
+  }
+  return { label: 'risky', className: 'bg-red-500/15 text-red-400' };
+}
+
+interface IntelligenceAlert {
+  type: string;
+  category?: string;
+  severity: 'high' | 'medium' | 'low';
+  severity_score?: number;
+  symbol?: string;
+  signal_type?: 'pump' | 'dump';
+  title: string;
+  detail: string;
+  action?: string;
+  evidence?: string[];
+}
+
+interface CrossPlatformConsensusCardItem {
+  symbol: string;
+  signal_type: 'pump' | 'dump';
+  consensus_score: number;
+  verdict: string;
+  badge: string;
+  market_score: number;
+  telegram_score: number;
+  x_score: number;
+  narrative_score: number;
+  summary: string;
+  supportive_signals?: string[];
+  conflict_flags?: string[];
+  lead_creator?: {
+    screen_name?: string;
+    trust_score: number;
+    trust_badge: string;
+  } | null;
+}
+
+const getToken = () => readStoredToken();
 
 const confLabel = { high: 'Strong', medium: 'Medium', low: 'Weak' };
 const riskColor = { low: 'text-emerald-500', medium: 'text-amber-500', high: 'text-red-500' };
 const riskLabel = { low: 'Low', medium: 'Medium', high: 'High' };
+const DASHBOARD_SCROLL_KEY = 'pumpradar-dashboard-scroll-y';
 
-function SignalCard({ signal, blurred, onNavigate }: { signal: Signal; blurred: boolean; onNavigate: (url: string) => void }) {
+function escapeRegex(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function TickerPill({ children }: { children: string }) {
+  return (
+    <span className="inline-flex items-center rounded-md border border-primary/20 bg-primary/10 px-1.5 py-0.5 font-bold tracking-wide text-foreground">
+      {children}
+    </span>
+  );
+}
+
+function highlightAssetText(text: string, symbol?: string, name?: string) {
+  if (!text) return text;
+
+  const tokens = [symbol, name]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegex);
+
+  if (!tokens.length) return text;
+
+  const regex = new RegExp(`(${tokens.join('|')})`, 'gi');
+  const parts = text.split(regex);
+
+  return parts.map((part, index) => {
+    const isMatch = tokens.some(token => new RegExp(`^${token}$`, 'i').test(part));
+    if (!isMatch) return <span key={`${part}-${index}`}>{part}</span>;
+
+    return (
+      <span
+        key={`${part}-${index}`}
+        className="rounded-md bg-primary/10 px-1 py-0.5 font-semibold text-foreground"
+      >
+        {part}
+      </span>
+    );
+  });
+}
+
+function highlightMarketText(text: string, tickers: string[]) {
+  if (!text) return text;
+
+  const tokens = Array.from(
+    new Set(
+      tickers
+        .filter(Boolean)
+        .map(token => token.trim())
+        .filter(token => /^[A-Z0-9]{2,15}$/.test(token))
+    )
+  )
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegex);
+
+  if (!tokens.length) return text;
+
+  const regex = new RegExp(`\\b(${tokens.join('|')})\\b`, 'g');
+  const parts = text.split(regex);
+
+  return parts.map((part, index) => {
+    const isMatch = tokens.some(token => new RegExp(`^${token}$`).test(part));
+    if (!isMatch) return <span key={`${part}-${index}`}>{part}</span>;
+    return <TickerPill key={`${part}-${index}`}>{part}</TickerPill>;
+  });
+}
+
+function formatRelativeShort(ts?: string | null) {
+  if (!ts) return 'just now';
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - new Date(ts).getTime()) / 1000));
+  if (diffSeconds < 10) return 'just now';
+  if (diffSeconds < 60) return `${diffSeconds}s ago`;
+  const mins = Math.floor(diffSeconds / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function deriveSignalState(signal: Signal): { label: string; tone: string; pulse: string } {
+  const oneHour = signal.price_change_1h ?? 0;
+  const day = signal.price_change_24h ?? 0;
+  const strength = signal.signal_strength ?? 0;
+  const risk = signal.risk_level;
+
+  if (signal.signal_type === 'pump') {
+    if ((day >= 12 || oneHour >= 3.5) && risk === 'high') {
+      return { label: 'Overextended', tone: 'bg-amber-500/15 text-amber-400', pulse: 'bg-amber-400' };
+    }
+    if (strength >= 75 && oneHour > 0) {
+      return { label: 'Confirmed', tone: 'bg-emerald-500/15 text-emerald-400', pulse: 'bg-emerald-400' };
+    }
+    return { label: 'Emerging', tone: 'bg-sky-500/15 text-sky-400', pulse: 'bg-sky-400' };
+  }
+
+  if ((day <= -10 || oneHour <= -3) && risk === 'high') {
+    return { label: 'Overextended', tone: 'bg-amber-500/15 text-amber-400', pulse: 'bg-amber-400' };
+  }
+  if (strength >= 70 && oneHour < 0) {
+    return { label: 'Failing', tone: 'bg-red-500/15 text-red-400', pulse: 'bg-red-400' };
+  }
+  return { label: 'Confirmed', tone: 'bg-orange-500/15 text-orange-400', pulse: 'bg-orange-400' };
+}
+
+function buildActivityEvents(data: SignalData | null, telegramConsensus: TelegramConsensusData | null, nextRefresh: number) {
+  if (!data) return [];
+
+  const events: { id: string; title: string; meta: string; tone: string; pulseBg: string }[] = [];
+  const topPump = data.pump_signals?.[0];
+  const topDump = data.dump_signals?.[0];
+  const hottestTelegram = telegramConsensus?.hot_symbols?.[0];
+
+  if (topPump) {
+    events.push({
+      id: `pump-${topPump.symbol}`,
+      title: `${topPump.symbol} is climbing the pump board`,
+      meta: `${topPump.signal_strength}% score • ${topPump.price_change_1h?.toFixed(2) ?? '0.00'}% in 1h`,
+      tone: 'text-emerald-400',
+      pulseBg: 'bg-emerald-400',
+    });
+  }
+  if (topDump) {
+    events.push({
+      id: `dump-${topDump.symbol}`,
+      title: `${topDump.symbol} is under dump pressure`,
+      meta: `${topDump.signal_strength}% score • ${topDump.price_change_1h?.toFixed(2) ?? '0.00'}% in 1h`,
+      tone: 'text-red-400',
+      pulseBg: 'bg-red-400',
+    });
+  }
+  if (telegramConsensus?.signal_count) {
+    events.push({
+      id: 'telegram-buzz',
+      title: `Telegram heat across ${telegramConsensus.active_sources.length} signal-grade channels`,
+      meta: `${telegramConsensus.signal_count} parsed calls in the last ${telegramConsensus.hours}h`,
+      tone: 'text-sky-400',
+      pulseBg: 'bg-sky-400',
+    });
+  }
+  if (hottestTelegram) {
+    events.push({
+      id: `telegram-${hottestTelegram.symbol}`,
+      title: `${hottestTelegram.symbol} is the hottest Telegram rumor`,
+      meta: `${hottestTelegram.mentions} mentions • ${hottestTelegram.unique_sources} sources`,
+      tone: 'text-cyan-400',
+      pulseBg: 'bg-cyan-400',
+    });
+  }
+  if (data.fear_greed) {
+    const sentimentTone = data.fear_greed.value < 30 ? 'text-red-400' : data.fear_greed.value > 65 ? 'text-emerald-400' : 'text-amber-400';
+    const sentimentPulse = data.fear_greed.value < 30 ? 'bg-red-400' : data.fear_greed.value > 65 ? 'bg-emerald-400' : 'bg-amber-400';
+    events.push({
+      id: 'fear-greed',
+      title: `Fear & Greed sits at ${data.fear_greed.value}`,
+      meta: data.fear_greed.classification,
+      tone: sentimentTone,
+      pulseBg: sentimentPulse,
+    });
+  }
+  events.push({
+    id: 'refresh',
+    title: 'Next full market scan',
+    meta: `${Math.floor(nextRefresh / 60)}m ${String(nextRefresh % 60).padStart(2, '0')}s`,
+    tone: 'text-indigo-400',
+    pulseBg: 'bg-indigo-400',
+  });
+
+  return events.slice(0, 5);
+}
+
+function LivePulseBar({ data, nextRefresh, telegramConsensus }: { data: SignalData; nextRefresh: number; telegramConsensus: TelegramConsensusData | null }) {
+  const lastUpdated = data.last_updated;
+  const topPump = data.pump_signals?.[0];
+  const topDump = data.dump_signals?.[0];
+  const hottestTelegram = telegramConsensus?.hot_symbols?.[0];
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-primary/15 bg-gradient-to-r from-background via-primary/5 to-background px-4 py-3">
+      <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-primary/10 to-transparent" />
+      <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+            <Radio className="h-4 w-4 text-primary animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              Live Signal Pulse
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                live
+              </span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Last refresh {formatRelativeShort(lastUpdated)}. Next scan in {Math.floor(nextRefresh / 60)}m {String(nextRefresh % 60).padStart(2, '0')}s.
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[560px]">
+          <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Top Pump</div>
+            <div className="mt-1 text-sm font-bold text-emerald-400">{topPump?.symbol || 'n/a'}</div>
+          </div>
+          <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Top Dump</div>
+            <div className="mt-1 text-sm font-bold text-red-400">{topDump?.symbol || 'n/a'}</div>
+          </div>
+          <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Fear & Greed</div>
+            <div className="mt-1 text-sm font-bold">{data.fear_greed ? `${data.fear_greed.value} ${data.fear_greed.classification}` : 'n/a'}</div>
+          </div>
+          <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Telegram Heat</div>
+              <div className="mt-1 text-sm font-bold text-sky-400">{hottestTelegram ? `${hottestTelegram.symbol} ×${hottestTelegram.mentions}` : 'quiet'}</div>
+            </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MarketHeatStrip({ data, telegramConsensus, onOpenCoin }: { data: SignalData; telegramConsensus: TelegramConsensusData | null; onOpenCoin: (symbol: string, type: 'pump' | 'dump') => void }) {
+  const items: { key: string; label: string; value: string; tone: string; onClick?: () => void }[] = [];
+
+  data.pump_signals.slice(0, 3).forEach((signal) => {
+    items.push({
+      key: `pump-${signal.symbol}`,
+      label: `${signal.symbol} pump`,
+      value: `${signal.signal_strength}%`,
+      tone: 'text-emerald-400',
+      onClick: () => onOpenCoin(signal.symbol, 'pump'),
+    });
+  });
+  data.dump_signals.slice(0, 2).forEach((signal) => {
+    items.push({
+      key: `dump-${signal.symbol}`,
+      label: `${signal.symbol} dump`,
+      value: `${signal.signal_strength}%`,
+      tone: 'text-red-400',
+      onClick: () => onOpenCoin(signal.symbol, 'dump'),
+    });
+  });
+  (telegramConsensus?.hot_symbols || []).slice(0, 3).forEach((symbol) => {
+    items.push({
+      key: `tg-${symbol.symbol}`,
+      label: `${symbol.symbol} chatter`,
+      value: `${symbol.mentions} mentions`,
+      tone: 'text-sky-400',
+    });
+  });
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-background/70">
+      <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10">
+          <Flame className="h-4 w-4 text-amber-400" />
+        </div>
+        <div>
+          <div className="text-sm font-semibold">Market Heat Strip</div>
+          <div className="text-xs text-muted-foreground">Fast scan of what is moving, buzzing, or breaking down right now.</div>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2 px-4 py-3">
+        {items.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={item.onClick}
+            className="rounded-full border border-border bg-muted/30 px-3 py-1.5 text-left transition hover:border-primary/30 hover:bg-muted/60"
+          >
+            <span className="text-[11px] text-muted-foreground">{item.label}</span>
+            <span className={`ml-2 text-xs font-bold ${item.tone}`}>{item.value}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ActivityRail({ events }: { events: { id: string; title: string; meta: string; tone: string; pulseBg: string }[] }) {
+  return (
+    <div className="rounded-2xl border border-border bg-background/70">
+      <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10">
+          <TimerReset className="h-4 w-4 text-indigo-400" />
+        </div>
+        <div>
+          <div className="text-sm font-semibold">Live Activity Rail</div>
+          <div className="text-xs text-muted-foreground">A quick stream of what changed most recently across the system.</div>
+        </div>
+      </div>
+      <div className="space-y-3 p-4">
+        {events.map((event) => (
+          <div key={event.id} className="relative rounded-xl border border-border/70 bg-muted/20 p-3 pl-5">
+            <span className={`absolute left-2 top-4 h-2 w-2 rounded-full animate-pulse ${event.pulseBg}`} />
+            <div className={`text-sm font-semibold ${event.tone}`}>{highlightMarketText(event.title, event.title.match(/\b[A-Z0-9]{2,15}\b/g) || [])}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{highlightMarketText(event.meta, event.meta.match(/\b[A-Z0-9]{2,15}\b/g) || [])}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ManipulationIntelStrip({ pump, dump }: { pump: Signal[]; dump: Signal[] }) {
+  const stealthBuild = [...pump]
+    .sort((a, b) => (b.manipulation_profile?.early_entry_score ?? 0) - (a.manipulation_profile?.early_entry_score ?? 0))[0];
+  const coordinated = [...pump, ...dump]
+    .sort((a, b) => (b.manipulation_profile?.coordinated_hype_score ?? 0) - (a.manipulation_profile?.coordinated_hype_score ?? 0))[0];
+  const dumpRisk = [...pump, ...dump]
+    .sort((a, b) => (b.manipulation_profile?.dump_risk_score ?? 0) - (a.manipulation_profile?.dump_risk_score ?? 0))[0];
+
+  const cards = [
+    {
+      label: 'Early Setup',
+      symbol: stealthBuild?.symbol || 'n/a',
+      value: `${stealthBuild?.manipulation_profile?.early_entry_score ?? 0}%`,
+      meta: stealthBuild?.manipulation_profile?.stage || 'No setup yet',
+      tone: 'text-cyan-400',
+      bg: 'bg-cyan-500/10',
+    },
+    {
+      label: 'Coordinated Hype',
+      symbol: coordinated?.symbol || 'n/a',
+      value: `${coordinated?.manipulation_profile?.coordinated_hype_score ?? 0}%`,
+      meta: coordinated?.manipulation_profile?.telegram_mentions ? `${coordinated.manipulation_profile.telegram_mentions} mentions` : 'No chatter yet',
+      tone: 'text-sky-400',
+      bg: 'bg-sky-500/10',
+    },
+    {
+      label: 'Fast Reversal Risk',
+      symbol: dumpRisk?.symbol || 'n/a',
+      value: `${dumpRisk?.manipulation_profile?.dump_risk_score ?? 0}%`,
+      meta: dumpRisk?.manipulation_profile?.stage || 'Stable',
+      tone: 'text-rose-400',
+      bg: 'bg-rose-500/10',
+    },
+  ];
+
+  return (
+    <div className="grid gap-3 md:grid-cols-3">
+      {cards.map((card) => (
+        <div key={card.label} className="rounded-2xl border border-border bg-background/70 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">{card.label}</div>
+              <div className="mt-1 flex items-center gap-2">
+                <TickerPill>{card.symbol}</TickerPill>
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">coin</span>
+              </div>
+            </div>
+            <div className={`rounded-xl px-3 py-2 ${card.bg}`}>
+              <div className={`text-base font-bold ${card.tone}`}>{card.value}</div>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground">{card.meta}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function IntelligenceAlertsCard({ alerts, onOpenCoin }: { alerts: IntelligenceAlert[]; onOpenCoin: (symbol: string, type: 'pump' | 'dump') => void }) {
+  if (!alerts.length) return null;
+  const groups = [
+    { key: 'high', label: 'High Priority' },
+    { key: 'medium', label: 'Watch Closely' },
+    { key: 'low', label: 'Background' },
+  ] as const;
+  return (
+    <div className="rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-950/20 via-background to-background">
+      <div className="border-b border-border/60 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-500" />
+          <div className="text-sm font-semibold">Fresh Manipulation Alerts</div>
+        </div>
+        <div className="text-xs text-muted-foreground mt-1">What looks coordinated, early, or dangerous right now.</div>
+      </div>
+      <div className="space-y-4 p-4">
+        {groups.map((group) => {
+          const scoped = alerts.filter((alert) => alert.severity === group.key);
+          if (!scoped.length) return null;
+          return (
+            <div key={group.key} className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">{group.label}</div>
+                <Badge variant="outline" className="text-[10px]">{scoped.length}</Badge>
+              </div>
+              {scoped.map((alert, index) => (
+                <button
+                  key={`${alert.type}-${alert.symbol || index}`}
+                  type="button"
+                  onClick={() => alert.symbol && onOpenCoin(alert.symbol, alert.signal_type || 'pump')}
+                  className="w-full rounded-xl border border-border bg-background/70 p-3 text-left transition hover:border-primary/30"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-semibold">{highlightMarketText(alert.title, alert.symbol ? [alert.symbol] : [])}</div>
+                    <div className="flex items-center gap-2">
+                      {typeof alert.severity_score === 'number' && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {alert.severity_score}/100
+                        </Badge>
+                      )}
+                      <Badge className={
+                        alert.severity === 'high'
+                          ? 'bg-red-500/15 text-red-500'
+                          : alert.severity === 'medium'
+                            ? 'bg-amber-500/15 text-amber-500'
+                            : 'bg-slate-500/15 text-slate-400'
+                      }>
+                        {alert.severity}
+                      </Badge>
+                    </div>
+                  </div>
+                  {alert.category && (
+                    <div className="mt-2">
+                      <Badge variant="outline" className="text-[10px] uppercase">
+                        {alert.category}
+                      </Badge>
+                    </div>
+                  )}
+                  <div className="mt-1 text-sm text-muted-foreground">{highlightMarketText(alert.detail, alert.symbol ? [alert.symbol] : [])}</div>
+                  {alert.action && (
+                    <div className="mt-2 text-xs font-medium text-foreground/80">
+                      Action: {highlightMarketText(alert.action, alert.symbol ? [alert.symbol] : [])}
+                    </div>
+                  )}
+                  {!!alert.evidence?.length && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {alert.evidence.slice(0, 3).map((item) => (
+                        <span key={`${alert.title}-${item}`} className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">
+                          {highlightMarketText(item, alert.symbol ? [alert.symbol] : [])}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CrossPlatformConsensusPanel({
+  cards,
+  onOpenCoin,
+}: {
+  cards: CrossPlatformConsensusCardItem[];
+  onOpenCoin: (symbol: string, type: 'pump' | 'dump') => void;
+}) {
+  if (!cards.length) return null;
+
+  const badgeStyles: Record<string, string> = {
+    aligned: 'bg-emerald-500/15 text-emerald-400',
+    building: 'bg-sky-500/15 text-sky-400',
+    speculative: 'bg-amber-500/15 text-amber-400',
+    thin: 'bg-slate-500/15 text-slate-300',
+  };
+
+  return (
+    <div className="rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-950/20 via-background to-background">
+      <div className="border-b border-border/60 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Radio className="h-4 w-4 text-cyan-400" />
+          <div className="text-sm font-semibold">Cross-Platform Consensus</div>
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          Market structure, Telegram chatter, X amplification, and narrative momentum ranked together.
+        </div>
+      </div>
+      <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
+        {cards.map((card) => (
+          <button
+            key={`${card.symbol}-${card.signal_type}`}
+            type="button"
+            onClick={() => onOpenCoin(card.symbol, card.signal_type)}
+            className="rounded-xl border border-border bg-background/70 p-4 text-left transition hover:border-primary/30"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <TickerPill>{card.symbol}</TickerPill>
+              <Badge className={badgeStyles[card.badge] || badgeStyles.thin}>
+                {card.verdict}
+              </Badge>
+            </div>
+            <div className="mt-3 flex items-end justify-between gap-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Consensus</div>
+                <div className="text-2xl font-bold">{card.consensus_score}%</div>
+              </div>
+              <div className={`text-xs font-semibold ${card.signal_type === 'pump' ? 'text-emerald-400' : 'text-red-400'}`}>
+                {card.signal_type.toUpperCase()}
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-4 gap-2 text-[11px]">
+              <div className="rounded-lg bg-muted/40 px-2 py-1.5">
+                <div className="text-muted-foreground">Market</div>
+                <div className="font-semibold">{card.market_score}</div>
+              </div>
+              <div className="rounded-lg bg-muted/40 px-2 py-1.5">
+                <div className="text-muted-foreground">Telegram</div>
+                <div className="font-semibold">{card.telegram_score}</div>
+              </div>
+              <div className="rounded-lg bg-muted/40 px-2 py-1.5">
+                <div className="text-muted-foreground">X</div>
+                <div className="font-semibold">{card.x_score}</div>
+              </div>
+              <div className="rounded-lg bg-muted/40 px-2 py-1.5">
+                <div className="text-muted-foreground">Narrative</div>
+                <div className="font-semibold">{card.narrative_score}</div>
+              </div>
+            </div>
+            <div className="mt-3 text-xs leading-relaxed text-muted-foreground">
+              {highlightMarketText(card.summary, [card.symbol])}
+            </div>
+            {card.lead_creator?.screen_name && (
+              <div className="mt-3">
+                <Badge variant="outline" className="text-[10px]">
+                  @{card.lead_creator.screen_name} · {card.lead_creator.trust_badge} · {card.lead_creator.trust_score}/100
+                </Badge>
+              </div>
+            )}
+            {!!card.supportive_signals?.length && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {card.supportive_signals.slice(0, 2).map((item) => (
+                  <span key={`${card.symbol}-${item}`} className="rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-400">
+                    {highlightMarketText(item, [card.symbol])}
+                  </span>
+                ))}
+              </div>
+            )}
+            {!!card.conflict_flags?.length && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {card.conflict_flags.slice(0, 2).map((item) => (
+                  <span key={`${card.symbol}-conflict-${item}`} className="rounded-full bg-amber-500/10 px-2 py-1 text-[10px] text-amber-400">
+                    {highlightMarketText(item, [card.symbol])}
+                  </span>
+                ))}
+              </div>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SignalCard({ signal, blurred, onNavigate, snapshotUpdatedAt, flash }: { signal: Signal; blurred: boolean; onNavigate: (url: string) => void; snapshotUpdatedAt?: string | null; flash?: boolean }) {
   const isPump = signal.signal_type === 'pump';
   const detailUrl = `/coin/${signal.symbol}?type=${signal.signal_type}`;
+  const tradeReadiness = signal.decision_engine?.trade_readiness ?? 'Pending';
+  const preferredVenue = signal.preferred_venue?.name || 'Venue check';
+  const entryZone = signal.decision_engine?.entry_zone;
+  const spread = signal.decision_engine?.average_spread_pct;
+  const signalState = deriveSignalState(signal);
+  const manipulation = signal.manipulation_profile;
 
   return (
     <div
-      className={`relative group overflow-hidden rounded-2xl border transition-all duration-300 ${blurred ? 'select-none cursor-default' : 'cursor-pointer hover:-translate-y-1 hover:shadow-xl'} ${isPump ? 'border-emerald-500/20 hover:border-emerald-500/40 bg-gradient-to-br from-emerald-950/30 via-background to-background' : 'border-red-500/20 hover:border-red-500/40 bg-gradient-to-br from-red-950/30 via-background to-background'}`}
+      className={`relative group overflow-hidden rounded-2xl border transition-all duration-300 ${blurred ? 'select-none cursor-default' : 'cursor-pointer hover:-translate-y-1 hover:shadow-xl'} ${flash && !blurred ? 'ring-2 ring-sky-500/30 shadow-[0_0_0_1px_rgba(14,165,233,0.15),0_0_28px_rgba(14,165,233,0.18)]' : ''} ${isPump ? 'border-emerald-500/20 hover:border-emerald-500/40 bg-gradient-to-br from-emerald-950/30 via-background to-background' : 'border-red-500/20 hover:border-red-500/40 bg-gradient-to-br from-red-950/30 via-background to-background'}`}
       data-testid={`signal-card-${signal.symbol}`}
       onClick={() => !blurred && onNavigate(detailUrl)}
+      style={flash && !blurred ? { animation: 'signalFlash 1.25s ease-out 2' } : undefined}
     >
       {/* Glow line top */}
       <div className={`absolute top-0 left-0 right-0 h-0.5 ${isPump ? 'bg-gradient-to-r from-transparent via-emerald-500 to-transparent' : 'bg-gradient-to-r from-transparent via-red-500 to-transparent'}`} />
+      {flash && !blurred && (
+        <>
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-sky-500/0 via-sky-500/12 to-sky-500/0 animate-pulse" />
+          <div className="pointer-events-none absolute -inset-6 rounded-[28px] border border-sky-400/25 animate-ping" />
+        </>
+      )}
 
       {blurred && (
         <div className="absolute inset-0 backdrop-blur-md bg-background/70 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl">
@@ -64,6 +734,7 @@ function SignalCard({ signal, blurred, onNavigate }: { signal: Signal; blurred: 
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-base tracking-tight">{signal.symbol}</span>
                 {signal.is_trending && <span className="text-[10px] font-bold bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded-full">TRENDING</span>}
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${signalState.tone}`}>{signalState.label}</span>
                 {!blurred && <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />}
               </div>
               <div className="text-xs text-muted-foreground">{signal.name}</div>
@@ -92,7 +763,39 @@ function SignalCard({ signal, blurred, onNavigate }: { signal: Signal; blurred: 
         </div>
 
         {/* AI Reason */}
-        <p className="text-xs text-muted-foreground mb-4 leading-relaxed line-clamp-2">{signal.reason}</p>
+        <p className="text-xs text-muted-foreground mb-4 leading-relaxed line-clamp-2">
+          {highlightAssetText(signal.reason, signal.symbol, signal.name)}
+        </p>
+
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <div className="bg-muted/40 rounded-lg p-2">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
+              <ShieldCheck className="h-3 w-3" />
+              Manipulation
+            </div>
+            <div className="text-xs font-bold">{manipulation?.manipulation_score ?? 0}%</div>
+            <div className="text-[10px] text-muted-foreground">{manipulation?.stage || tradeReadiness}</div>
+          </div>
+          <div className="bg-muted/40 rounded-lg p-2">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
+              <Target className="h-3 w-3" />
+              {manipulation?.risk_metric_label || (isPump ? 'Reversal Risk' : 'Dump Risk')}
+            </div>
+            <div className="text-xs font-bold truncate">{manipulation?.dump_risk_score ?? 0}%</div>
+            <div className="text-[10px] text-muted-foreground capitalize">
+              {manipulation?.telegram_mentions ? `${manipulation.telegram_mentions} mentions` : preferredVenue}
+            </div>
+          </div>
+        </div>
+
+        {manipulation?.summary && (
+          <div className="mb-3 rounded-lg border border-border/60 bg-background/40 p-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Manipulation Read</div>
+            <div className="text-[11px] leading-relaxed text-muted-foreground line-clamp-3">
+              {highlightAssetText(manipulation.summary, signal.symbol, signal.name)}
+            </div>
+          </div>
+        )}
 
         {/* Metrics */}
         <div className="grid grid-cols-3 gap-2">
@@ -118,13 +821,34 @@ function SignalCard({ signal, blurred, onNavigate }: { signal: Signal; blurred: 
               </div>
             </div>
           )}
+          {entryZone && (
+            <div className="bg-muted/40 rounded-lg p-2 text-center">
+              <div className="text-[10px] text-muted-foreground mb-0.5">Entry Zone</div>
+              <div className="text-[11px] font-bold tabular-nums">
+                ${entryZone.low > 1 ? entryZone.low.toFixed(2) : entryZone.low.toFixed(5)}
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                to ${entryZone.high > 1 ? entryZone.high.toFixed(2) : entryZone.high.toFixed(5)}
+              </div>
+            </div>
+          )}
         </div>
+
+        {(spread !== undefined || signal.decision_engine?.risk_reward !== undefined) && (
+          <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Spread {spread != null ? `${spread.toFixed(3)}%` : 'n/a'}</span>
+            <span>R/R {signal.decision_engine?.risk_reward?.toFixed(2) ?? 'n/a'}</span>
+          </div>
+        )}
 
         {/* Confidence footer */}
         <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <div className={`h-1.5 w-1.5 rounded-full ${signal.confidence === 'high' ? 'bg-emerald-400' : signal.confidence === 'medium' ? 'bg-amber-400' : 'bg-slate-400'}`} />
+            <div className={`h-1.5 w-1.5 rounded-full animate-pulse ${signalState.pulse}`} />
             <span className="text-xs text-muted-foreground">{confLabel[signal.confidence]} confidence</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground">Updated {formatRelativeShort(snapshotUpdatedAt)}</span>
           </div>
           {!blurred && <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">Click for details →</span>}
         </div>
@@ -137,6 +861,11 @@ function AISummaryCard({ data }: { data: SignalData }) {
   const fg = data.fear_greed;
   const fgColor = fg ? (fg.value < 25 ? '#ef4444' : fg.value < 45 ? '#f97316' : fg.value < 55 ? '#eab308' : fg.value < 75 ? '#22c55e' : '#10b981') : '#6366f1';
   const trending = data.trending?.slice(0, 5) || [];
+  const summaryTickers = Array.from(new Set([
+    ...trending,
+    ...data.pump_signals.slice(0, 6).map(signal => signal.symbol),
+    ...data.dump_signals.slice(0, 4).map(signal => signal.symbol),
+  ]));
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/40 via-purple-950/20 to-background">
@@ -153,7 +882,7 @@ function AISummaryCard({ data }: { data: SignalData }) {
             <div className="flex items-center gap-2 mb-0.5">
               <span className="text-xs font-black uppercase tracking-widest bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">AI Market Intelligence</span>
             </div>
-            <p className="text-sm leading-relaxed text-foreground/90">{data.market_summary}</p>
+            <p className="text-sm leading-relaxed text-foreground/90">{highlightMarketText(data.market_summary, summaryTickers)}</p>
           </div>
         </div>
         {(fg || trending.length > 0) && (
@@ -175,6 +904,199 @@ function AISummaryCard({ data }: { data: SignalData }) {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function TelegramConsensusCard({ data, onOpenFeed }: { data: TelegramConsensusData; onOpenFeed: () => void }) {
+  const topSymbols = data.hot_symbols.slice(0, 4);
+  const headlineTickers = data.hot_symbols.map(symbol => symbol.symbol);
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-950/30 via-background to-background">
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute -top-10 right-0 h-40 w-40 rounded-full bg-sky-500/10 blur-3xl" />
+        <div className="absolute -bottom-10 left-0 h-32 w-32 rounded-full bg-cyan-500/10 blur-3xl" />
+      </div>
+      <div className="relative p-4 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="h-9 w-9 rounded-xl bg-sky-500/15 flex items-center justify-center">
+              <Zap className="h-4 w-4 text-sky-400" />
+            </div>
+            <div>
+              <div className="text-xs font-black uppercase tracking-widest text-sky-400">Telegram Consensus</div>
+              <p className="text-sm text-foreground/90 mt-1">{highlightMarketText(data.headline, headlineTickers)}</p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={onOpenFeed}>
+            Open Feed
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="rounded-xl border border-border bg-background/60 p-3">
+            <div className="text-xs text-muted-foreground">Signal-Grade Channels</div>
+            <div className="text-lg font-bold">{data.active_sources.length}</div>
+          </div>
+          <div className="rounded-xl border border-border bg-background/60 p-3">
+            <div className="text-xs text-muted-foreground">Parsed Mentions</div>
+            <div className="text-lg font-bold">{data.signal_count}</div>
+          </div>
+          <div className="rounded-xl border border-border bg-background/60 p-3">
+            <div className="text-xs text-muted-foreground">Bullish Chatter</div>
+            <div className="text-lg font-bold text-emerald-400">{data.bullish_mentions}</div>
+          </div>
+          <div className="rounded-xl border border-border bg-background/60 p-3">
+            <div className="text-xs text-muted-foreground">Bearish Chatter</div>
+            <div className="text-lg font-bold text-red-400">{data.bearish_mentions}</div>
+          </div>
+        </div>
+
+        {topSymbols.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {topSymbols.map(symbol => {
+              const qualityBadge = deriveConsensusBadge(symbol);
+              return (
+              <div key={symbol.symbol} className="rounded-xl border border-border bg-background/60 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold">{symbol.symbol}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                        symbol.stance === 'bullish'
+                          ? 'bg-emerald-500/15 text-emerald-400'
+                          : symbol.stance === 'bearish'
+                            ? 'bg-red-500/15 text-red-400'
+                            : 'bg-amber-500/15 text-amber-400'
+                      }`}>
+                        {symbol.stance.toUpperCase()}
+                      </span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase ${qualityBadge.className}`}>
+                        {qualityBadge.label}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {symbol.mentions} mentions across {symbol.unique_sources} source{symbol.unique_sources === 1 ? '' : 's'}
+                    </div>
+                  </div>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                    symbol.rumor_level === 'high'
+                      ? 'bg-sky-500/15 text-sky-400'
+                      : symbol.rumor_level === 'medium'
+                        ? 'bg-indigo-500/15 text-indigo-400'
+                        : 'bg-muted text-muted-foreground'
+                  }`}>
+                    {symbol.rumor_level} buzz
+                  </span>
+                </div>
+                <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Bull {symbol.bullish_mentions} / Bear {symbol.bearish_mentions}</span>
+                  <span>Avg score {symbol.avg_score.toFixed(0)}</span>
+                </div>
+                <div className="mt-2 text-[11px] text-muted-foreground line-clamp-2">
+                  {symbol.source_names.join(', ')}
+                </div>
+              </div>
+            )})}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-border bg-background/60 p-4 text-sm text-muted-foreground">
+            No repeated Telegram coin chatter yet. As new messages arrive from the signal-grade channels, this block will summarize what is being pushed hardest.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NarrativeBurstCard({
+  data,
+  telegramConsensus,
+  alerts,
+  onOpenCoin,
+}: {
+  data: SignalData;
+  telegramConsensus: TelegramConsensusData | null;
+  alerts: IntelligenceAlert[];
+  onOpenCoin: (symbol: string, type: 'pump' | 'dump') => void;
+}) {
+  const bullishRumor = telegramConsensus?.hot_symbols.find((item) => item.stance === 'bullish');
+  const bearishRumor = telegramConsensus?.hot_symbols.find((item) => item.stance === 'bearish');
+  const topAlert = alerts[0];
+  const narrativeTokens = Array.from(
+    new Set([
+      ...(data.trending || []).slice(0, 5),
+      ...(telegramConsensus?.hot_symbols || []).slice(0, 4).map((item) => item.symbol),
+      ...alerts.map((alert) => alert.symbol).filter(Boolean) as string[],
+    ])
+  );
+
+  const cards = [
+    {
+      label: 'Trending Narrative',
+      symbol: data.trending?.[0] || 'quiet',
+      detail: data.trending?.length
+        ? `${data.trending.slice(0, 4).join(', ')} are leading the broader attention layer.`
+        : 'No strong trend cluster detected right now.',
+      tone: 'text-amber-400',
+      bg: 'bg-amber-500/10',
+      type: 'pump' as const,
+    },
+    {
+      label: 'Bullish Chatter',
+      symbol: bullishRumor?.symbol || 'quiet',
+      detail: bullishRumor
+        ? `${bullishRumor.symbol} is getting ${bullishRumor.mentions} bullish mentions across ${bullishRumor.unique_sources} source${bullishRumor.unique_sources === 1 ? '' : 's'}.`
+        : 'No convincing bullish rumor cluster yet.',
+      tone: 'text-emerald-400',
+      bg: 'bg-emerald-500/10',
+      type: 'pump' as const,
+    },
+    {
+      label: 'Risk Narrative',
+      symbol: bearishRumor?.symbol || topAlert?.symbol || 'quiet',
+      detail: bearishRumor
+        ? `${bearishRumor.symbol} is skewing bearish across watched channels.`
+        : topAlert
+          ? topAlert.detail
+          : 'No urgent narrative breakdown detected.',
+      tone: 'text-rose-400',
+      bg: 'bg-rose-500/10',
+      type: bearishRumor?.stance === 'bearish' || topAlert?.signal_type === 'dump' ? 'dump' as const : 'pump' as const,
+    },
+  ];
+
+  return (
+    <div className="rounded-2xl border border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-950/25 via-background to-background">
+      <div className="border-b border-border/60 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Brain className="h-4 w-4 text-fuchsia-400" />
+          <div className="text-sm font-semibold">Narrative Burst</div>
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {highlightMarketText('Cross-checking trend, Telegram chatter, and live alert context to spot what story is trying to lead price next.', narrativeTokens)}
+        </div>
+      </div>
+      <div className="grid gap-3 p-4 md:grid-cols-3">
+        {cards.map((card) => (
+          <button
+            key={card.label}
+            type="button"
+            onClick={() => card.symbol !== 'quiet' && onOpenCoin(card.symbol, card.type)}
+            className="rounded-xl border border-border bg-background/70 p-4 text-left transition hover:border-primary/30"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">{card.label}</div>
+              <div className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${card.bg} ${card.tone}`}>
+                {card.symbol}
+              </div>
+            </div>
+            <div className="mt-3 text-sm text-muted-foreground leading-relaxed">
+              {highlightMarketText(card.detail, narrativeTokens)}
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -203,36 +1125,109 @@ function SkeletonCard() {
   );
 }
 
-export default function SignalsDashboard() {
+interface SignalsDashboardProps {
+  forcedTab?: 'pump' | 'dump' | 'all';
+}
+
+export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const [data, setData] = useState<SignalData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [nextRefresh, setNextRefresh] = useState<number>(3600);
   const [activeTab, setActiveTab] = useState('pump');
-  const [subscriptionExpired, setSubscriptionExpired] = useState(false);
+  const [subscriptionState, setSubscriptionState] = useState<'expired' | 'required' | null>(null);
+  const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionInfo | null>(null);
+  const [telegramConsensus, setTelegramConsensus] = useState<TelegramConsensusData | null>(null);
+  const [intelligenceAlerts, setIntelligenceAlerts] = useState<IntelligenceAlert[]>([]);
+  const [crossPlatformCards, setCrossPlatformCards] = useState<CrossPlatformConsensusCardItem[]>([]);
+  const [lastManualRefreshAt, setLastManualRefreshAt] = useState<string | null>(null);
+  const [flashSignals, setFlashSignals] = useState(false);
 
   useEffect(() => {
-    if (location.pathname.includes('dump')) setActiveTab('dump');
-    else if (location.pathname.includes('history')) setActiveTab('history');
-    else setActiveTab('pump');
+    if (forcedTab) {
+      setActiveTab(forcedTab);
+      return;
+    }
+
+    if (location.pathname.includes('/dashboard/dump')) setActiveTab('dump');
+    else if (location.pathname.includes('/dashboard/pump')) setActiveTab('pump');
+    else setActiveTab('all');
+  }, [forcedTab, location.pathname]);
+
+  useEffect(() => {
+    const savedScroll = sessionStorage.getItem(DASHBOARD_SCROLL_KEY);
+    if (!savedScroll) return;
+
+    sessionStorage.removeItem(DASHBOARD_SCROLL_KEY);
+    const top = Number(savedScroll);
+    if (Number.isNaN(top)) return;
+
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top, behavior: 'auto' });
+    });
   }, [location.pathname]);
 
-  const fetchSignals = useCallback(async () => {
-    setLoading(true);
+  useEffect(() => {
+    if (!flashSignals) return;
+    const timer = window.setTimeout(() => setFlashSignals(false), 2200);
+    return () => window.clearTimeout(timer);
+  }, [flashSignals]);
+
+  const handleTabChange = (tab: string) => {
+    sessionStorage.setItem(DASHBOARD_SCROLL_KEY, String(window.scrollY));
+    setActiveTab(tab);
+    if (tab === 'pump') navigate('/dashboard/pump');
+    else if (tab === 'dump') navigate('/dashboard/dump');
+    else navigate('/dashboard');
+  };
+
+  const fetchSignals = useCallback(async (options?: { manual?: boolean }) => {
+    const isManual = Boolean(options?.manual);
+    if (isManual) setRefreshing(true);
+    else setLoading(true);
     try {
       const token = getToken();
-      const res = await axios.get('/api/crypto/signals', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (res.data.success) { setData(res.data.data); setNextRefresh(3600); setSubscriptionExpired(false); }
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const params = isManual ? { _ts: Date.now() } : undefined;
+      const [signalsRes, subscriptionRes] = await Promise.all([
+        axios.get('/api/crypto/signals', { headers, params }),
+        token ? axios.get('/api/user/subscription', { headers, params }).catch(() => null) : Promise.resolve(null),
+      ]);
+      if (signalsRes.data.success) {
+        const signalsData = signalsRes.data.data;
+        setData(signalsData);
+        setNextRefresh(3600);
+        setSubscriptionState(null);
+        setTelegramConsensus(signalsData.telegram_consensus || null);
+        setIntelligenceAlerts(signalsData.fresh_manipulation_alerts || []);
+        setCrossPlatformCards(signalsData.cross_platform_consensus || []);
+        if (isManual) {
+          setLastManualRefreshAt(new Date().toISOString());
+          setFlashSignals(true);
+        }
+      }
+      if (subscriptionRes?.data?.success) {
+        setSubscriptionInfo(subscriptionRes.data.data);
+      } else if (!token) {
+        setSubscriptionInfo(null);
+      }
+      if (!token) {
+        setTelegramConsensus(null);
+        setIntelligenceAlerts([]);
+        setCrossPlatformCards([]);
+      }
     } catch (err: any) {
-      // Check for subscription expiry (402 Payment Required)
       if (err.response?.status === 402) {
-        setSubscriptionExpired(true);
+        const code = err.response?.data?.detail?.error?.code;
+        setSubscriptionState(code === 'SUBSCRIPTION_EXPIRED' ? 'expired' : 'required');
       }
     }
-    finally { setLoading(false); }
+    finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
   useEffect(() => { fetchSignals(); const iv = setInterval(fetchSignals, 3600000); return () => clearInterval(iv); }, [fetchSignals]);
@@ -240,22 +1235,47 @@ export default function SignalsDashboard() {
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
   const fmtTime = (ts: string | null) => ts ? new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
+  const fmtDateTime = (ts?: string | null) => ts ? new Date(ts).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A';
 
   const pump = data?.pump_signals || [];
   const dump = data?.dump_signals || [];
   const hasAccess = data?.has_full_access !== false;
   const FREE_LIMIT = 3;
+  const showAccuracyTracker = !forcedTab && location.pathname === '/dashboard';
+  const activityEvents = buildActivityEvents(data, telegramConsensus, nextRefresh);
+  const countdownTone =
+    nextRefresh <= 60
+      ? {
+          wrap: 'border-red-500/25 bg-gradient-to-r from-red-500/15 via-rose-500/10 to-background text-red-500',
+          pulse: 'bg-red-500',
+          icon: 'text-red-500',
+        }
+      : nextRefresh <= 300
+        ? {
+            wrap: 'border-amber-500/25 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-background text-amber-500',
+            pulse: 'bg-amber-500',
+            icon: 'text-amber-500',
+          }
+        : {
+            wrap: 'border-sky-500/25 bg-gradient-to-r from-sky-500/15 via-cyan-500/10 to-background text-sky-500',
+            pulse: 'bg-sky-500',
+            icon: 'text-sky-500',
+          };
 
   // Show subscription expired banner
-  if (subscriptionExpired) {
+  if (subscriptionState) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8" data-testid="subscription-expired">
         <div className="w-20 h-20 bg-amber-100 dark:bg-amber-950 rounded-full flex items-center justify-center mb-6">
           <Clock className="h-10 w-10 text-amber-500" />
         </div>
-        <h2 className="text-2xl font-bold mb-2">Your Free Trial Has Expired</h2>
+        <h2 className="text-2xl font-bold mb-2">
+          {subscriptionState === 'expired' ? 'Your Free Trial Has Expired' : 'Start Your Free 7-Day Trial'}
+        </h2>
         <p className="text-muted-foreground mb-6 max-w-md">
-          Your 24-hour free trial has ended. Subscribe to Pro to continue receiving AI-powered PUMP & DUMP signals.
+          {subscriptionState === 'expired'
+            ? 'Your 7-day free trial has ended. Subscribe to Pro to continue receiving AI-powered PUMP & DUMP signals.'
+            : 'Unlock the full signal feed with a 7-day free trial. Stripe collects billing details at checkout and billing starts only if you keep the plan active after the trial.'}
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
           <Button 
@@ -274,8 +1294,8 @@ export default function SignalsDashboard() {
         <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4 text-left max-w-2xl">
           {[
             { title: 'All Signals', desc: 'Access all PUMP & DUMP signals without limits' },
-            { title: 'Real-time AI', desc: 'Hourly AI analysis with Gemini' },
-            { title: 'Priority Support', desc: 'Get help when you need it' },
+            { title: 'Card-Backed Trial', desc: 'Stripe collects card and billing details securely at checkout' },
+            { title: 'Reminder Email', desc: 'Users get an email before the trial converts to paid' },
           ].map((f, i) => (
             <div key={i} className="bg-muted/30 rounded-xl p-4 border border-border">
               <div className="font-semibold text-sm mb-1">{f.title}</div>
@@ -289,34 +1309,72 @@ export default function SignalsDashboard() {
 
   return (
     <div className="space-y-5" data-testid="signals-dashboard">
+      <style>{`
+        @keyframes signalFlash {
+          0% { transform: scale(1); box-shadow: 0 0 0 rgba(14,165,233,0); }
+          30% { transform: scale(1.015); box-shadow: 0 0 0 2px rgba(14,165,233,0.22), 0 0 32px rgba(14,165,233,0.22); }
+          100% { transform: scale(1); box-shadow: 0 0 0 rgba(14,165,233,0); }
+        }
+      `}</style>
+      {data && <LivePulseBar data={data} nextRefresh={nextRefresh} telegramConsensus={telegramConsensus} />}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
             <Brain className="h-5 w-5 text-primary" />
-            AI Crypto Signals
+            Manipulation Intelligence
           </h1>
-          <p className="text-muted-foreground text-sm">Pump & Dump detection powered by Gemini AI · LunarCrush + CoinGecko data</p>
+          <p className="text-muted-foreground text-sm">Early coordinated-move detection using CoinGecko, Telegram source tracking, social momentum inputs, and AI enhancement when available</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-lg border border-border">
-            <Clock className="h-3.5 w-3.5" />Next update: {fmt(nextRefresh)}
+          <div className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${countdownTone.wrap}`}>
+            <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-background/70">
+              <span className={`absolute inline-flex h-3 w-3 rounded-full ${countdownTone.pulse} animate-ping opacity-75`} />
+              <TimerReset className={`relative h-4 w-4 ${countdownTone.icon}`} />
+            </div>
+            <div className="leading-tight">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Next live scan</div>
+              <div className="text-base font-black tabular-nums">{fmt(nextRefresh)}</div>
+            </div>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchSignals} disabled={loading} data-testid="refresh-btn">
-            <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />Refresh
+          {lastManualRefreshAt && (
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-emerald-500 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
+              <Activity className="h-3.5 w-3.5" />
+              Updated {formatRelativeShort(lastManualRefreshAt)}
+            </div>
+          )}
+          <Button variant="outline" size="sm" onClick={() => fetchSignals({ manual: true })} disabled={loading || refreshing} data-testid="refresh-btn">
+            <RefreshCw className={`h-4 w-4 mr-1.5 ${(loading || refreshing) ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh Now'}
           </Button>
         </div>
       </div>
 
+      {data && (
+        <MarketHeatStrip
+          data={data}
+          telegramConsensus={telegramConsensus}
+          onOpenCoin={(symbol, type) => navigate(`/coin/${symbol}?type=${type}`)}
+        />
+      )}
+
+      <ManipulationIntelStrip pump={pump} dump={dump} />
+
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { icon: <TrendingUp className="h-4 w-4" />, value: pump.length, label: 'PUMP Signals', color: 'text-emerald-500', bg: 'bg-emerald-500/10', testid: 'pump-count' },
-          { icon: <TrendingDown className="h-4 w-4" />, value: dump.length, label: 'DUMP Signals', color: 'text-red-500', bg: 'bg-red-500/10', testid: 'dump-count' },
-          { icon: <BarChart3 className="h-4 w-4" />, value: data?.coins_analyzed || 0, label: 'Coins Analyzed', color: 'text-blue-500', bg: 'bg-blue-500/10', testid: 'coins-count' },
-          { icon: <Activity className="h-4 w-4" />, value: fmtTime(data?.last_updated || null), label: 'Last Update', color: 'text-purple-500', bg: 'bg-purple-500/10', testid: 'last-update' },
+          { icon: <TrendingUp className="h-4 w-4" />, value: pump.length, label: 'PUMP Signals', color: 'text-emerald-500', bg: 'bg-emerald-500/10', testid: 'pump-count', onClick: () => navigate('/dashboard/pump') },
+          { icon: <TrendingDown className="h-4 w-4" />, value: dump.length, label: 'DUMP Signals', color: 'text-red-500', bg: 'bg-red-500/10', testid: 'dump-count', onClick: () => navigate('/dashboard/dump') },
+          { icon: <BarChart3 className="h-4 w-4" />, value: data?.coins_analyzed || 0, label: 'Coins Analyzed', color: 'text-blue-500', bg: 'bg-blue-500/10', testid: 'coins-count', onClick: () => navigate('/history') },
+          { icon: <Activity className="h-4 w-4" />, value: fmtTime(data?.last_updated || null), label: 'Last Update', color: 'text-purple-500', bg: 'bg-purple-500/10', testid: 'last-update', onClick: () => navigate('/history') },
         ].map(s => (
-          <Card key={s.label}>
+          <Card
+            key={s.label}
+            className="cursor-pointer transition hover:border-primary/30 hover:shadow-sm"
+            onClick={s.onClick}
+            data-testid={`dashboard-stat-${s.testid}`}
+          >
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className={`h-9 w-9 rounded-xl ${s.bg} flex items-center justify-center ${s.color} flex-shrink-0`}>{s.icon}</div>
@@ -330,8 +1388,59 @@ export default function SignalsDashboard() {
       {/* AI Market Intelligence card */}
       {data?.market_summary && <AISummaryCard data={data} />}
 
-      {/* Signal Accuracy Tracker */}
-      <AccuracyTracker />
+      {data && (
+        <NarrativeBurstCard
+          data={data}
+          telegramConsensus={telegramConsensus}
+          alerts={intelligenceAlerts}
+          onOpenCoin={(symbol, type) => navigate(`/coin/${symbol}?type=${type}`)}
+        />
+      )}
+
+      {!!crossPlatformCards.length && (
+        <CrossPlatformConsensusPanel
+          cards={crossPlatformCards}
+          onOpenCoin={(symbol, type) => navigate(`/coin/${symbol}?type=${type}`)}
+        />
+      )}
+
+      {showAccuracyTracker && telegramConsensus && (
+        <TelegramConsensusCard
+          data={telegramConsensus}
+          onOpenFeed={() => navigate('/telegram-signals')}
+        />
+      )}
+
+      {!!intelligenceAlerts.length && (
+        <IntelligenceAlertsCard
+          alerts={intelligenceAlerts}
+          onOpenCoin={(symbol, type) => navigate(`/coin/${symbol}?type=${type}`)}
+        />
+      )}
+
+      {data && activityEvents.length > 0 && <ActivityRail events={activityEvents} />}
+
+      {subscriptionInfo?.subscription === 'trial' && subscriptionInfo?.is_active && (
+        <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 px-4 py-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="font-semibold text-sm">Card-Backed Trial Active</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Trial active until {fmtDateTime(subscriptionInfo.expiry)}.
+                {subscriptionInfo.pending_plan ? ` After trial, plan switches to ${subscriptionInfo.pending_plan}.` : ''}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Next billing at {fmtDateTime(subscriptionInfo.next_billing_at)}. Cancel before then if you do not want the paid plan.
+              </div>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => navigate('/subscription')}>
+              Manage Billing
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {showAccuracyTracker && <AccuracyTracker />}
 
       {/* Upgrade Banner */}
       {!hasAccess && (
@@ -340,22 +1449,34 @@ export default function SignalsDashboard() {
             <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0" />
             <div><p className="font-semibold text-sm">Free Trial Expired</p><p className="text-xs text-muted-foreground">Upgrade to Pro for full access to all signals</p></div>
           </div>
-          <Button size="sm" onClick={() => navigate('/pages/pricing')} data-testid="upgrade-btn">
+          <Button size="sm" onClick={() => navigate('/subscription')} data-testid="upgrade-btn">
             <Zap className="h-4 w-4 mr-2" />Upgrade to Pro
           </Button>
         </div>
       )}
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="h-10">
-          <TabsTrigger value="pump" data-testid="tab-pump" className="gap-2 text-sm">
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
+        <TabsList className="h-11 rounded-2xl border border-border/70 bg-background/80 p-1 backdrop-blur">
+          <TabsTrigger
+            value="pump"
+            data-testid="tab-pump"
+            className="gap-2 rounded-xl px-4 text-sm transition-all duration-200 data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-500 data-[state=active]:shadow-sm"
+          >
             <TrendingUp className="h-4 w-4 text-emerald-500" />PUMP <span className="bg-emerald-500/15 text-emerald-500 text-xs font-bold px-1.5 rounded-full">{pump.length}</span>
           </TabsTrigger>
-          <TabsTrigger value="dump" data-testid="tab-dump" className="gap-2 text-sm">
+          <TabsTrigger
+            value="dump"
+            data-testid="tab-dump"
+            className="gap-2 rounded-xl px-4 text-sm transition-all duration-200 data-[state=active]:bg-red-500/10 data-[state=active]:text-red-500 data-[state=active]:shadow-sm"
+          >
             <TrendingDown className="h-4 w-4 text-red-500" />DUMP <span className="bg-red-500/15 text-red-500 text-xs font-bold px-1.5 rounded-full">{dump.length}</span>
           </TabsTrigger>
-          <TabsTrigger value="all" data-testid="tab-all" className="text-sm">
+          <TabsTrigger
+            value="all"
+            data-testid="tab-all"
+            className="rounded-xl px-4 text-sm transition-all duration-200 data-[state=active]:bg-primary/10 data-[state=active]:shadow-sm"
+          >
             All <span className="bg-muted text-muted-foreground text-xs font-bold px-1.5 rounded-full ml-1">{pump.length + dump.length}</span>
           </TabsTrigger>
         </TabsList>
@@ -369,7 +1490,7 @@ export default function SignalsDashboard() {
                 : signals.length === 0
                   ? <EmptyState type={tab === 'all' ? 'pump' : tab} />
                   : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {signals.map((s, i) => <SignalCard key={`${s.signal_type}-${s.symbol}`} signal={s} blurred={!hasAccess && i >= FREE_LIMIT} onNavigate={navigate} />)}
+                      {signals.map((s, i) => <SignalCard key={`${s.signal_type}-${s.symbol}`} signal={s} blurred={!hasAccess && i >= FREE_LIMIT} onNavigate={navigate} snapshotUpdatedAt={data?.last_updated} flash={flashSignals} />)}
                     </div>
               }
             </TabsContent>

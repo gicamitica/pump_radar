@@ -1,34 +1,37 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Check, Zap, Calendar, Crown, Lock, Loader2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/shared/ui/shadcn/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/shadcn/components/ui/card';
 import { Button } from '@/shared/ui/shadcn/components/ui/button';
 import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
+import { readStoredToken } from '@/shared/utils/tokenStorage';
 
-const getToken = () => localStorage.getItem('pumpradar_auth_token') || sessionStorage.getItem('pumpradar_auth_token');
+const getToken = () => readStoredToken();
 
 const PLANS = [
   {
     id: 'trial',
-    name: 'Free Trial',
+    name: 'Trial',
     price: 0,
-    period: '24 hours',
+    period: '7 days',
     icon: <Zap className="h-6 w-6" />,
     color: 'text-emerald-500',
     bg: 'bg-emerald-100 dark:bg-emerald-950',
     features: [
-      'First 3 PUMP signals',
-      'First 3 DUMP signals',
-      'Daily AI summary',
-      '24 hour access',
+      'Start your 7-day free trial',
+      'Full Pro access',
+      'No charge today',
+      'Cancel anytime before billing',
+      'Secure checkout with Stripe',
+      'Reminder email before billing',
     ],
-    cta: 'Activated on registration',
+    cta: 'Included with paid plans',
     disabled: true,
   },
   {
     id: 'monthly',
-    name: 'Pro Monthly',
+    name: 'Monthly',
     price: 29.99,
     period: '/month',
     icon: <Calendar className="h-6 w-6" />,
@@ -37,39 +40,42 @@ const PLANS = [
     featured: true,
     badge: 'Popular',
     features: [
-      'All PUMP & DUMP signals',
-      'Real-time AI analysis',
+      'All pump & dump signals',
+      'Full AI signal analysis',
       'LunarCrush + CoinGecko data',
-      'Hourly updates',
-      'Detailed AI summary',
-      '30 day access',
+      'Hourly signal refresh',
+      'Morning & evening signal digest',
+      'Priority support',
     ],
-    cta: 'Subscribe Monthly',
+    cta: 'Start 7-Day Trial',
   },
   {
     id: 'annual',
-    name: 'Pro Annual',
-    price: 199.99,
+    name: 'Annual',
+    price: 299.99,
     period: '/year',
     icon: <Crown className="h-6 w-6" />,
     color: 'text-purple-500',
     bg: 'bg-purple-100 dark:bg-purple-950',
-    badge: '-44%',
+    badge: 'Save 2 months',
     badgeColor: 'bg-purple-500',
     features: [
-      'Everything in Pro Monthly',
-      'Save $160/year',
-      '12 month access',
-      'Priority for new features',
+      'All pump & dump signals',
+      'Full AI signal analysis',
+      'Live LunarCrush data',
+      'Hourly signal refresh',
+      'Morning & evening signal digest',
       'Priority support',
+      'Save 2 months vs monthly',
     ],
-    cta: 'Subscribe Annual',
+    cta: 'Start 7-Day Trial',
   },
 ];
 
 export default function SubscriptionPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState<string | null>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubscribe = async (planId: string) => {
@@ -99,13 +105,43 @@ export default function SubscriptionPage() {
     }
   };
 
+  const handleManageBilling = async () => {
+    const token = getToken();
+    if (!token) {
+      navigate('/auth/login');
+      return;
+    }
+    setPortalLoading(true);
+    setError('');
+    try {
+      const originUrl = window.location.origin;
+      const res = await axios.post('/api/payments/portal', {
+        origin_url: originUrl,
+      }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.data.success && res.data.data.url) {
+        window.location.href = res.data.data.url;
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail?.error?.message || err.response?.data?.detail || 'Error opening billing portal');
+    } finally {
+      setPortalLoading(false);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-8" data-testid="subscription-page">
       <div className="text-center">
         <h1 className="text-3xl font-bold mb-2">Choose Your Plan</h1>
         <p className="text-muted-foreground">
-          Access AI Pump & Dump signals generated from real market data
+          Start with a 7-day free trial, then continue automatically unless canceled
         </p>
+        <div className="mt-4">
+          <Button variant="outline" onClick={handleManageBilling} disabled={portalLoading} data-testid="manage-billing-btn">
+            {portalLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Opening billing...</> : 'Manage Billing / Cancel Trial'}
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -168,7 +204,7 @@ export default function SubscriptionPage() {
       </div>
 
       <p className="text-center text-xs text-muted-foreground">
-        Secure payments via Stripe. Cancel anytime. Prices in USD.
+        Secure payments via Stripe. Billing details are collected at checkout. Cancel before the trial ends to avoid the first charge.
       </p>
     </div>
   );

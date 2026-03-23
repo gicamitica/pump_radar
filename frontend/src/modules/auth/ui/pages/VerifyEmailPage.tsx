@@ -1,19 +1,29 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Loader2, CheckCircle, XCircle, Mail } from 'lucide-react';
 import { Button } from '@/shared/ui/shadcn/components/ui/button';
 import { Card, CardContent } from '@/shared/ui/shadcn/components/ui/card';
+import { useService } from '@/app/providers/useDI';
+import { AUTH_SYMBOLS } from '@/modules/auth/di/symbols';
+import type { IAuthService } from '@/modules/auth/application/ports/IAuthService';
+
+const USER_STORAGE_KEY = 'pumpradar_auth_current_user';
 
 type VerifyStatus = 'loading' | 'success' | 'error' | 'no-token';
 
 export default function VerifyEmailPage() {
   const navigate = useNavigate();
+  const authService = useService<IAuthService>(AUTH_SYMBOLS.IAuthService);
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState<VerifyStatus>('loading');
   const [message, setMessage] = useState('');
+  const [resendMessage, setResendMessage] = useState('');
+  const [isResending, setIsResending] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
   
   const token = searchParams.get('token');
+  const email = searchParams.get('email') || '';
 
   useEffect(() => {
     if (!token) {
@@ -27,11 +37,46 @@ export default function VerifyEmailPage() {
         const response = await axios.post('/api/auth/verify-email', { token });
         if (response.data.success) {
           setStatus('success');
-          setMessage('Your email has been verified successfully!');
+          setMessage('Your email has been verified. Redirecting you to secure card setup for the 7-day trial.');
           
-          // If user data is returned, update localStorage
+          if (response.data.data.user && response.data.data.accessToken && response.data.data.refreshToken) {
+            await authService.completeLogin(
+              response.data.data.user,
+              {
+                accessToken: response.data.data.accessToken,
+                refreshToken: response.data.data.refreshToken,
+              },
+              true
+            );
+
+            localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(response.data.data.user));
+            setCheckoutLoading(true);
+            try {
+              const checkoutResponse = await axios.post(
+                '/api/payments/checkout',
+                {
+                  plan: 'monthly',
+                  origin_url: window.location.origin,
+                },
+                {
+                  headers: { Authorization: `Bearer ${response.data.data.accessToken}` },
+                }
+              );
+
+              if (checkoutResponse.data.success && checkoutResponse.data.data.url) {
+                window.location.href = checkoutResponse.data.data.url;
+                return;
+              }
+            } catch {
+              setMessage('Your email has been verified. We could not open secure card checkout automatically, so use the button below.');
+            } finally {
+              setCheckoutLoading(false);
+            }
+            return;
+          }
+
           if (response.data.data.user) {
-            localStorage.setItem('pumpradar_user', JSON.stringify(response.data.data.user));
+            localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(response.data.data.user));
           }
         } else {
           setStatus('error');
@@ -47,7 +92,28 @@ export default function VerifyEmailPage() {
     };
 
     verifyEmail();
-  }, [token]);
+  }, [token, authService, navigate]);
+
+  const handleResend = async () => {
+    if (!email || isResending) {
+      return;
+    }
+
+    try {
+      setIsResending(true);
+      setResendMessage('');
+      const response = await axios.post('/api/auth/resend-verification', { email });
+      setResendMessage(response.data?.data?.message || 'Verification email sent. Please check your inbox.');
+    } catch (error: any) {
+      const errorMsg =
+        error.response?.data?.detail?.error?.message ||
+        error.response?.data?.detail ||
+        'Could not resend verification email. Please try again.';
+      setResendMessage(errorMsg);
+    } finally {
+      setIsResending(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-4">
@@ -68,8 +134,11 @@ export default function VerifyEmailPage() {
               </div>
               <h2 className="text-2xl font-bold mb-2">Email Verified!</h2>
               <p className="text-muted-foreground mb-6">{message}</p>
-              <Button className="w-full" onClick={() => navigate('/auth/login')} data-testid="go-login-btn">
-                Continue to Login
+              <p className="text-sm text-muted-foreground mb-6">
+                You are being signed in automatically and sent to Stripe card setup.
+              </p>
+              <Button className="w-full" onClick={() => window.location.assign('/subscription')} data-testid="go-subscription-btn" disabled={checkoutLoading}>
+                {checkoutLoading ? 'Opening secure card setup...' : 'Open Secure Card Setup'}
               </Button>
             </>
           )}
@@ -99,11 +168,24 @@ export default function VerifyEmailPage() {
               </div>
               <h2 className="text-2xl font-bold mb-2">Check Your Email</h2>
               <p className="text-muted-foreground mb-6">
-                We sent a verification link to your email address. Click the link in the email to verify your account.
+                Your account was created. Verify your email first, then you will continue to secure card setup for the 7-day free trial.
               </p>
-              <Button variant="outline" className="w-full" onClick={() => navigate('/auth/login')}>
-                Back to Login
-              </Button>
+              {email && (
+                <p className="text-sm text-foreground mb-4">
+                  Verification email sent to <span className="font-medium">{email}</span>
+                </p>
+              )}
+              <div className="space-y-3">
+                {email && (
+                  <Button variant="outline" className="w-full" onClick={handleResend} disabled={isResending}>
+                    {isResending ? 'Sending...' : 'Resend Verification Email'}
+                  </Button>
+                )}
+                <Button className="w-full" onClick={() => navigate('/auth/login')}>
+                  Back to Login
+                </Button>
+              </div>
+              {resendMessage && <p className="text-sm text-muted-foreground mt-4">{resendMessage}</p>}
             </>
           )}
         </CardContent>

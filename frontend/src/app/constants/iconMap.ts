@@ -7,7 +7,8 @@ import {
   Pencil, MousePointer2, ChevronDownSquare, Accessibility, Move, AlignLeft,
   Boxes, Combine, SlidersHorizontal, ToggleLeft, Eye,
   ListOrdered, ShoppingCart, Briefcase, GraduationCap, Contact,
-  Brain, HardDrive, StickyNote, Map, CheckSquare, HeartPulse, Headphones, Video, Clock
+  Brain, HardDrive, StickyNote, Map, CheckSquare, HeartPulse, Headphones, Video, Clock,
+  Send
 } from 'lucide-react';
 import type { SidebarIconKey } from '@/app/config/navigation';
 
@@ -76,6 +77,7 @@ export const iconMap: Record<SidebarIconKey, React.ComponentType<{ className?: s
   'headphones': Headphones,
   'video': Video,
   'clock': Clock,
+  'telegram': Send,
 };
 
 /**

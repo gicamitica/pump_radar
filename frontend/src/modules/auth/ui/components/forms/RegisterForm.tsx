@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -6,7 +6,7 @@ import { useService } from '@/app/providers/useDI';
 import { AUTH_SYMBOLS } from '@/modules/auth/di/symbols';
 import { CORE_SYMBOLS } from '@/core/di/symbols';
 import type { IAuthService } from '@/modules/auth/application/ports/IAuthService';
-import type { ILogger } from '@/shared/infrastructure/logging/ILogger';
+import type { ILogger } from '@/shared/utils/Logger';
 import FieldEmail from '../../../../../shared/ui/components/forms/composites/field/FieldEmail';
 import { FieldPassword } from '@/components/forms/composites/field';
 import ActionButton from '@/components/forms/buttons/ActionButton';
@@ -19,7 +19,7 @@ const schema = z.object({
 
 type Values = z.infer<typeof schema>;
 
-const RegisterForm: React.FC<{ onSuccess?: () => void }> = ({ onSuccess }) => {
+const RegisterForm: React.FC<{ onSuccess?: (email: string) => void }> = ({ onSuccess }) => {
   const auth = useService<IAuthService>(AUTH_SYMBOLS.IAuthService);
   const logger = useService<ILogger>(CORE_SYMBOLS.ILogger);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +34,7 @@ const RegisterForm: React.FC<{ onSuccess?: () => void }> = ({ onSuccess }) => {
       logger.info('Register form submitted', { email: values.email });
       await auth.register({ email: values.email, password: values.password, name: values.name });
       logger.info('Registration successful');
-      if (onSuccess) onSuccess();
+      if (onSuccess) onSuccess(values.email);
     } catch (err: unknown) {
       logger.error('Registration failed', err);
       const msg = err instanceof Error ? err.message : 'Registration failed. Please try again.';

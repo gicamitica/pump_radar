@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tsconfigPaths(), tailwindcss()],
     build: {
       sourcemap: false,
+      chunkSizeWarningLimit: 700,
     },
     optimizeDeps: {
       entries: ["index.html"],

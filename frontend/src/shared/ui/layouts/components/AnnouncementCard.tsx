@@ -67,7 +67,7 @@ const AnnouncementCard: React.FC = () => {
             </div>
 
             <button
-              onClick={() => { navigate('/pages/pricing'); onDismiss(); }}
+              onClick={() => { navigate('/subscription'); onDismiss(); }}
               className="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-semibold py-2 px-3 rounded-xl transition-colors"
             >
               <Zap className="size-3.5" />

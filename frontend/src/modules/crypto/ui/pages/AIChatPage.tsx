@@ -1,10 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { Send, Bot, User, Loader2, MessageCircle, Sparkles } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/shadcn/components/ui/card';
+import { useNavigate } from 'react-router-dom';
+import { Send, Bot, User, Loader2, Sparkles } from 'lucide-react';
+import { Card, CardContent } from '@/shared/ui/shadcn/components/ui/card';
 import { Button } from '@/shared/ui/shadcn/components/ui/button';
+import { readStoredToken } from '@/shared/utils/tokenStorage';
 
-const getToken = () => localStorage.getItem('pumpradar_auth_token') || sessionStorage.getItem('pumpradar_auth_token');
+const getToken = () => readStoredToken();
 
 interface Msg { role: 'user' | 'assistant'; text: string; ts: Date; }
 
@@ -16,12 +18,45 @@ const SUGGESTIONS = [
 ];
 
 export default function AIChatPage() {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<Msg[]>([
     { role: 'assistant', text: 'Hi! I am the PumpRadar AI assistant. I can help you with questions about crypto signals, subscription plans, or how to use the platform. How can I help you?', ts: new Date() }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const checkAccess = async () => {
+      const token = getToken();
+      if (!token) {
+        navigate('/auth/login', { replace: true });
+        return;
+      }
+
+      try {
+        const res = await axios.get('/api/user/subscription', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.data?.success || !res.data?.data?.is_active) {
+          navigate('/subscription', { replace: true });
+        }
+      } catch (error) {
+        if (axios.isAxiosError(error)) {
+          if (error.response?.status === 402) {
+            navigate('/subscription', { replace: true });
+            return;
+          }
+          if (error.response?.status === 401) {
+            navigate('/auth/login', { replace: true });
+            return;
+          }
+        }
+      }
+    };
+
+    checkAccess();
+  }, [navigate]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -41,7 +76,19 @@ export default function AIChatPage() {
       if (res.data.success) {
         setMessages(prev => [...prev, { role: 'assistant', text: res.data.data.reply, ts: new Date() }]);
       }
-    } catch {
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 402) {
+          navigate('/subscription', { replace: true });
+          setLoading(false);
+          return;
+        }
+        if (error.response?.status === 401) {
+          navigate('/auth/login', { replace: true });
+          setLoading(false);
+          return;
+        }
+      }
       setMessages(prev => [...prev, { role: 'assistant', text: 'Sorry, an error occurred. Please try again.', ts: new Date() }]);
     } finally {
       setLoading(false);

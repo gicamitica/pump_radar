@@ -2,7 +2,7 @@ import React from 'react';
 import AnimatedDropdown from '@/shared/ui/components/animated-dropdown/AnimatedDropdown';
 import AnimatedDropdownTrigger from '@/shared/ui/components/animated-dropdown/AnimatedDropdownTrigger';
 import AnimatedDropdownContent from '@/shared/ui/components/animated-dropdown/AnimatedDropdownContent';
-import { LogOut, LayoutDashboard, CreditCard, MessageCircle, Shield } from 'lucide-react';
+import { LogOut, LayoutDashboard, CreditCard, MessageCircle } from 'lucide-react';
 import { FloatingHover } from '@/shared/ui/components/FloatingHover';
 import { useHoverBackground } from '@/shared/hooks/useHoverBackground';
 import ThemeToggler from '@/shared/ui/components/ThemeToggler';
@@ -35,16 +35,13 @@ const AvatarMenu: React.FC = () => {
     }
   }, [authService, logger]);
 
-  const isAdmin = currentUser?.roles?.includes('admin');
-
   const menuEntries = React.useMemo<MenuEntry[]>(() => [
     { type: 'item', key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, onClick: () => navigate('/dashboard') },
-    { type: 'item', key: 'subscription', label: 'Subscription', icon: CreditCard, onClick: () => navigate('/pages/pricing') },
+    { type: 'item', key: 'subscription', label: 'Subscription', icon: CreditCard, onClick: () => navigate('/subscription') },
     { type: 'item', key: 'ai-chat', label: 'AI Assistant', icon: MessageCircle, onClick: () => navigate('/ai-chat') },
-    ...(isAdmin ? [{ type: 'item' as const, key: 'admin', label: 'Super Admin', icon: Shield, onClick: () => navigate('/super-admin') }] : []),
     { type: 'separator', key: 'sep' },
     { type: 'item', key: 'logout', label: 'Sign Out', icon: LogOut, onClick: handleLogout, variant: 'danger' as const },
-  ], [navigate, handleLogout, isAdmin]);
+  ], [navigate, handleLogout]);
 
   const initials = currentUser?.name
     ? currentUser.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)

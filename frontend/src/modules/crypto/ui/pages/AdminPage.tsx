@@ -1,18 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useService } from '@/app/providers/useDI';
 import { AUTH_SYMBOLS } from '@/modules/auth/di/symbols';
 import type { IAuthService } from '@/modules/auth/application/ports/IAuthService';
-import { Users, Trash2, Edit, Search, Shield, Crown, Clock, RefreshCw, X, Check } from 'lucide-react';
+import { Trash2, Edit, Search, Shield, Crown, Clock, RefreshCw, X, Check } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/shadcn/components/ui/card';
 import { Button } from '@/shared/ui/shadcn/components/ui/button';
 import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
+import { readStoredToken } from '@/shared/utils/tokenStorage';
 
-const getToken = () => {
-  const raw = localStorage.getItem('pumpradar_auth_token') || sessionStorage.getItem('pumpradar_auth_token');
-  if (!raw) return null;
-  try { const p = JSON.parse(raw); return typeof p === 'string' ? p : raw; } catch { return raw; }
-};
+const getToken = () => readStoredToken();
 
 interface UserEntry { id: string; email: string; name: string; subscription: string; emailVerified: boolean; createdAt: string; roles: string[]; }
 

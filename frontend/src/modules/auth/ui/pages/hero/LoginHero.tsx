@@ -3,7 +3,6 @@ import LayoutHero from '../../layouts/LayoutHero';
 import LoginForm from '../../components/forms/LoginForm';
 import OauthButtons from '../../components/OauthButtons';
 import FormHeader from '../../../../../shared/ui/components/forms/layout/FormHeader';
-import FormDivider from '../../../../../shared/ui/components/forms/layout/FormDivider';
 import { nextLink } from '../../components/navLinks';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -21,7 +20,6 @@ const LoginHero: React.FC = () => {
       footer={<span>Don’t have an account? <Link className="text-blue-600" to={link.to}>{t('createOne','Create one')}</Link></span>}
     >
       <LoginForm forgotUrl={AUTH_PATHS_HERO.FORGOT_PASSWORD_HERO} />
-      <FormDivider />
       <OauthButtons />
     </LayoutHero>
   );

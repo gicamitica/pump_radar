@@ -34,7 +34,7 @@ const SubscriptionBadge: React.FC = () => {
   if (sub === 'trial' && !isExpired) {
     return (
       <button
-        onClick={() => navigate('/pages/pricing')}
+        onClick={() => navigate('/subscription')}
         className="hidden sm:flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold px-3 py-1.5 rounded-full hover:bg-amber-500/20 transition-colors"
         data-testid="subscription-badge"
       >
@@ -46,7 +46,7 @@ const SubscriptionBadge: React.FC = () => {
 
   return (
     <button
-      onClick={() => navigate('/pages/pricing')}
+      onClick={() => navigate('/subscription')}
       className="hidden sm:flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs font-semibold px-3 py-1.5 rounded-full hover:bg-red-500/20 transition-colors animate-pulse"
       data-testid="subscription-badge-expired"
     >

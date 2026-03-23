@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { Star, Plus, Trash2, TrendingUp, TrendingDown, RefreshCw, Bell, BellOff, ExternalLink } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/shadcn/components/ui/card';
+import { Card, CardContent } from '@/shared/ui/shadcn/components/ui/card';
 import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
 import { Button } from '@/shared/ui/shadcn/components/ui/button';
 import { Input } from '@/shared/ui/shadcn/components/ui/input';
+import { readStoredToken } from '@/shared/utils/tokenStorage';
 import { toast } from 'sonner';
 
-const getToken = () => localStorage.getItem('pumpradar_auth_token') || sessionStorage.getItem('pumpradar_auth_token');
+const getToken = () => readStoredToken();
 
 interface WatchlistCoin {
   symbol: string;
@@ -31,22 +33,56 @@ interface CoinData {
 const STORAGE_KEY = 'pumpradar_watchlist';
 
 export default function WatchlistPage() {
+  const navigate = useNavigate();
   const [watchlist, setWatchlist] = useState<WatchlistCoin[]>([]);
   const [coinData, setCoinData] = useState<Map<string, CoinData>>(new Map());
   const [loading, setLoading] = useState(true);
   const [newCoin, setNewCoin] = useState('');
   const [adding, setAdding] = useState(false);
 
-  // Load watchlist from localStorage
+  // Require active subscription before exposing watchlist tools
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
+    const checkAccess = async () => {
+      const token = getToken();
+      if (!token) {
+        navigate('/auth/login', { replace: true });
+        return;
+      }
+
       try {
-        setWatchlist(JSON.parse(saved));
-      } catch {}
-    }
-    setLoading(false);
-  }, []);
+        const res = await axios.get('/api/user/subscription', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.data?.success || !res.data?.data?.is_active) {
+          navigate('/subscription', { replace: true });
+          return;
+        }
+
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          try {
+            setWatchlist(JSON.parse(saved));
+          } catch {}
+        }
+      } catch (error) {
+        if (axios.isAxiosError(error)) {
+          if (error.response?.status === 402) {
+            navigate('/subscription', { replace: true });
+            return;
+          }
+          if (error.response?.status === 401) {
+            navigate('/auth/login', { replace: true });
+            return;
+          }
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAccess();
+  }, [navigate]);
 
   // Save watchlist to localStorage
   useEffect(() => {
@@ -88,6 +124,16 @@ export default function WatchlistPage() {
           setCoinData(dataMap);
         }
       } catch (err) {
+        if (axios.isAxiosError(err)) {
+          if (err.response?.status === 402) {
+            navigate('/subscription', { replace: true });
+            return;
+          }
+          if (err.response?.status === 401) {
+            navigate('/auth/login', { replace: true });
+            return;
+          }
+        }
         console.error('Failed to fetch prices', err);
       }
     };
@@ -95,7 +141,7 @@ export default function WatchlistPage() {
     fetchPrices();
     const interval = setInterval(fetchPrices, 60000); // Refresh every minute
     return () => clearInterval(interval);
-  }, [watchlist]);
+  }, [watchlist, navigate]);
 
   const addCoin = async () => {
     if (!newCoin.trim()) return;
@@ -129,6 +175,18 @@ export default function WatchlistPage() {
       setNewCoin('');
       toast.success(`Added ${symbol} to watchlist`);
     } catch (err) {
+      if (axios.isAxiosError(err)) {
+        if (err.response?.status === 402) {
+          navigate('/subscription', { replace: true });
+          setAdding(false);
+          return;
+        }
+        if (err.response?.status === 401) {
+          navigate('/auth/login', { replace: true });
+          setAdding(false);
+          return;
+        }
+      }
       // Add anyway with just symbol
       setWatchlist(prev => [...prev, {
         symbol: symbol,

@@ -83,12 +83,17 @@ export class HttpClient implements IHttpClient {
           }
         }
 
-        const errorData = error.response?.data as Record<string, unknown>;
-        const enhancedError = {
-          ...(errorData.error || {}),
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-        };
+        const errorData = error.response?.data as {
+          error?: { code?: string; message?: string };
+          detail?: string | { error?: { code?: string; message?: string }; message?: string };
+        } | undefined;
+        const detail = errorData?.detail;
+        const detailMessage = typeof detail === 'string' ? detail : detail?.error?.message || detail?.message;
+        const message = errorData?.error?.message || detailMessage || error.message || 'Request failed';
+        const enhancedError = new Error(message) as Error & { code?: string; status?: number; statusText?: string };
+        enhancedError.code = errorData?.error?.code || (typeof detail === 'object' ? detail?.error?.code : undefined);
+        enhancedError.status = error.response?.status;
+        enhancedError.statusText = error.response?.statusText;
         return Promise.reject(enhancedError);
       }
     );
@@ -130,8 +135,11 @@ export class HttpClient implements IHttpClient {
   }
 
   removeAuthToken(): void {
+    const refreshKey = `${this.config.auth.tokenKey}_refresh`;
     this.storageService.removeItem(this.config.auth.tokenKey);
+    this.storageService.removeItem(refreshKey);
     this.storageService.removeSessionItem(this.config.auth.tokenKey);
+    this.storageService.removeSessionItem(refreshKey);
     this.storageService.removeItem(this.config.auth.currentUserKey);
     this.storageService.removeSessionItem(this.config.auth.currentUserKey);
   }

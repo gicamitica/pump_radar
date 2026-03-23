@@ -3,6 +3,7 @@ export const CRYPTO_PATHS = {
   PUMP_SIGNALS: '/dashboard/pump',
   DUMP_SIGNALS: '/dashboard/dump',
   HISTORY: '/history',
+  TELEGRAM_SIGNALS: '/telegram-signals',
   WATCHLIST: '/watchlist',
   SUBSCRIPTION: '/subscription',
   SUBSCRIPTION_SUCCESS: '/subscription/success',

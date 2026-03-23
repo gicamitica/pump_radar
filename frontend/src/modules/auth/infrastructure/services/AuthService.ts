@@ -20,6 +20,7 @@ import type { IAuthRepository } from '@/modules/auth/infrastructure/repositories
 import type { AuthEventHandler } from '@/modules/auth/application/handlers/AuthEventHandler';
 import type {
   AuthUser,
+  AuthTokens,
   Role,
   LoginDTO,
   RegisterDTO,
@@ -50,7 +51,9 @@ export class AuthService implements IAuthService {
     this.tokenStorageKey = this.config.auth.tokenKey;
     this.refreshTokenStorageKey = `${this.config.auth.tokenKey}_refresh`;
     // Restore user from storage on initialization
-    this.currentUser = this.storage.getItem<AuthUser>(this.userStorageKey);
+    this.currentUser =
+      this.storage.getItem<AuthUser>(this.userStorageKey) ??
+      this.storage.getSessionItem<AuthUser>(this.userStorageKey);
     if (this.currentUser) {
       this.logger.info('User session restored', { userId: this.currentUser.id });
     }
@@ -65,21 +68,16 @@ export class AuthService implements IAuthService {
       this.logger.info('Login attempt', { email: dto.email });
       
       const response = await this.repository.login(dto);
-      
-      // Store tokens
-      this.storage.setItem(this.tokenStorageKey, response.accessToken);
-      this.storage.setItem(this.refreshTokenStorageKey, response.refreshToken);
-      
-      // Store user
-      this.currentUser = response.user;
-      this.storage.setItem(this.userStorageKey, this.currentUser);
-      
-      // Publish success event
-      this.eventHandler.publishLoginSuccess(response.user);
-      
-      this.logger.info('Login successful', { userId: response.user.id });
-      
-      return response.user;
+
+      return await this.completeLogin(
+        response.user,
+        {
+          accessToken: response.accessToken,
+          refreshToken: response.refreshToken,
+          expiresIn: response.expiresIn,
+        },
+        dto.remember
+      );
     } catch (error) {
       this.logger.error('Login failed', error);
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -88,26 +86,32 @@ export class AuthService implements IAuthService {
     }
   }
 
-  async register(dto: RegisterDTO): Promise<AuthUser> {
+  async completeLogin(user: AuthUser, tokens: AuthTokens, remember: boolean = true): Promise<AuthUser> {
+    const tokenWriter = remember ? this.storage.setItem.bind(this.storage) : this.storage.setSessionItem.bind(this.storage);
+    const otherTokenRemover = remember ? this.storage.removeSessionItem.bind(this.storage) : this.storage.removeItem.bind(this.storage);
+
+    tokenWriter(this.tokenStorageKey, tokens.accessToken);
+    tokenWriter(this.refreshTokenStorageKey, tokens.refreshToken);
+    tokenWriter(this.userStorageKey, user);
+
+    otherTokenRemover(this.tokenStorageKey);
+    otherTokenRemover(this.refreshTokenStorageKey);
+    otherTokenRemover(this.userStorageKey);
+
+    this.currentUser = user;
+    this.eventHandler.publishLoginSuccess(user);
+    this.logger.info('Login successful', { userId: user.id });
+
+    return user;
+  }
+
+  async register(dto: RegisterDTO): Promise<void> {
     try {
       this.logger.info('Registration attempt', { email: dto.email });
       
-      const response = await this.repository.register(dto);
+      await this.repository.register(dto);
       
-      // Store tokens
-      this.storage.setItem(this.tokenStorageKey, response.accessToken);
-      this.storage.setItem(this.refreshTokenStorageKey, response.refreshToken);
-      
-      // Store user
-      this.currentUser = response.user;
-      this.storage.setItem(this.userStorageKey, this.currentUser);
-      
-      // Publish success event (reuse login success)
-      this.eventHandler.publishLoginSuccess(response.user);
-      
-      this.logger.info('Registration successful', { userId: response.user.id });
-      
-      return response.user;
+      this.logger.info('Registration successful - verification required');
     } catch (error) {
       this.logger.error('Registration failed', error);
       throw error;
@@ -252,7 +256,10 @@ export class AuthService implements IAuthService {
   }
 
   isAuthenticated(): boolean {
-    return !!this.currentUser && !!this.storage.getItem(this.tokenStorageKey);
+    return !!this.currentUser && !!(
+      this.storage.getItem(this.tokenStorageKey) ||
+      this.storage.getSessionItem(this.tokenStorageKey)
+    );
   }
 
   hasAnyRole(roles: Role[]): boolean {
@@ -274,6 +281,9 @@ export class AuthService implements IAuthService {
     this.storage.removeItem(this.userStorageKey);
     this.storage.removeItem(this.tokenStorageKey);
     this.storage.removeItem(this.refreshTokenStorageKey);
+    this.storage.removeSessionItem(this.userStorageKey);
+    this.storage.removeSessionItem(this.tokenStorageKey);
+    this.storage.removeSessionItem(this.refreshTokenStorageKey);
     this.logger.debug('Session cleared');
   }
 }

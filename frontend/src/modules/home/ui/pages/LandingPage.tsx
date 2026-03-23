@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TrendingUp, TrendingDown, Brain, Zap, Clock, Shield, ChevronRight, Check, Star, BarChart3, Activity, Menu, X } from 'lucide-react';
+import axios from 'axios';
+import { TrendingUp, TrendingDown, Brain, Zap, Clock, Shield, ChevronRight, Check, BarChart3, Activity, Menu, X, Flame, Radio, Send } from 'lucide-react';
+import { readStoredToken } from '@/shared/utils/tokenStorage';
 
 // PumpRadar Logo
 const PumpRadarLogo = ({ size = 32 }: { size?: number }) => (
@@ -13,57 +15,100 @@ const PumpRadarLogo = ({ size = 32 }: { size?: number }) => (
 );
 
 const FEATURES = [
-  { icon: <Brain className="h-6 w-6" />, title: 'AI Gemini Analysis', desc: 'AI-filtered signals from 100+ cryptocurrencies in real-time', color: 'text-purple-400', bg: 'bg-purple-500/10' },
+  { icon: <Brain className="h-6 w-6" />, title: 'AI-Enhanced Analysis', desc: 'Deterministic signal engine with AI refinement when quota and provider access are available', color: 'text-purple-400', bg: 'bg-purple-500/10' },
   { icon: <Clock className="h-6 w-6" />, title: 'Hourly Updates', desc: 'Fresh data every hour from CoinGecko + Fear & Greed Index', color: 'text-blue-400', bg: 'bg-blue-500/10' },
   { icon: <TrendingUp className="h-6 w-6" />, title: 'PUMP Signals', desc: 'Identify coins with positive momentum before the big move', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
   { icon: <TrendingDown className="h-6 w-6" />, title: 'DUMP Signals', desc: 'Avoid losses — detect selling pressure early', color: 'text-red-400', bg: 'bg-red-500/10' },
-  { icon: <BarChart3 className="h-6 w-6" />, title: 'Social Data', desc: 'Social volume, sentiment and Galaxy Score from LunarCrush', color: 'text-amber-400', bg: 'bg-amber-500/10' },
+  { icon: <BarChart3 className="h-6 w-6" />, title: 'Social Momentum Layer', desc: 'CoinGecko trend signals plus LunarCrush social metrics whenever the active provider plan allows it', color: 'text-amber-400', bg: 'bg-amber-500/10' },
   { icon: <Shield className="h-6 w-6" />, title: 'Risk Rating', desc: 'Each signal comes with risk level and AI confidence score', color: 'text-pink-400', bg: 'bg-pink-500/10' },
 ];
 
 const PLANS = [
   {
-    name: 'Free Trial',
+    name: 'Trial',
     price: '0',
-    period: '24 hours',
-    features: ['First 3 PUMP signals', 'First 3 DUMP signals', 'AI Summary', '24h access'],
-    cta: 'Try Free',
+    period: '7 days',
+    features: ['Start your 7-day free trial', 'Full Pro access', 'No charge today', 'Cancel anytime before billing', 'Secure checkout with Stripe', 'Reminder email before billing'],
+    cta: 'Start Trial',
     variant: 'outline',
   },
   {
-    name: 'Pro Monthly',
+    name: 'Monthly',
     price: '29.99',
     period: '/month',
-    features: ['All PUMP & DUMP signals', 'Complete AI analysis', 'Live LunarCrush data', 'Hourly updates', 'Priority support'],
+    features: ['All pump & dump signals', 'Full AI signal analysis', 'Social momentum layer', 'Hourly signal refresh', 'Morning & evening signal digest', 'Priority support'],
     cta: 'Subscribe Monthly',
     variant: 'primary',
     badge: 'Popular',
   },
   {
-    name: 'Pro Annual',
-    price: '199.99',
+    name: 'Annual',
+    price: '299.99',
     period: '/year',
-    features: ['Everything in Pro Monthly', 'Save $160/year', '12 month access', 'First access to new features'],
+    features: ['All pump & dump signals', 'Full AI signal analysis', 'Social momentum layer', 'Hourly signal refresh', 'Morning & evening signal digest', 'Priority support', 'Save 2 months vs monthly'],
     cta: 'Subscribe Annual',
     variant: 'outline',
-    badge: '-44%',
+    badge: 'Save 2 months',
   },
 ];
 
-const MOCK_SIGNALS = [
+interface LandingSignal {
+  symbol: string;
+  name: string;
+  type: 'pump' | 'dump';
+  strength: number;
+  change1h: string;
+  change24h: string;
+  confidence: string;
+  reason: string;
+  updatedAt?: string | null;
+}
+
+const FALLBACK_SIGNALS: LandingSignal[] = [
   { symbol: 'AKT', name: 'Akash Network', type: 'pump', strength: 85, change1h: '+1.43%', change24h: '+1.25%', confidence: 'Strong', reason: 'Trending CoinGecko + increased volume' },
-  { symbol: 'SOL', name: 'Solana', type: 'pump', strength: 78, change1h: '+2.1%', change24h: '+5.3%', confidence: 'Strong', reason: 'Positive momentum all timeframes' },
-  { symbol: 'LUNA', name: 'Terra Luna', type: 'dump', strength: 72, change1h: '-2.1%', change24h: '-8.3%', confidence: 'Medium', reason: 'Strong selling pressure' },
+  { symbol: 'SOL', name: 'Solana', type: 'pump', strength: 78, change1h: '+2.10%', change24h: '+5.30%', confidence: 'Strong', reason: 'Positive momentum all timeframes' },
+  { symbol: 'LUNA', name: 'Terra Luna', type: 'dump', strength: 72, change1h: '-2.10%', change24h: '-8.30%', confidence: 'Medium', reason: 'Strong selling pressure' },
 ];
 
 export default function LandingPage() {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [signals, setSignals] = useState<LandingSignal[]>(FALLBACK_SIGNALS);
+  const [signalsLoading, setSignalsLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [coinsAnalyzed, setCoinsAnalyzed] = useState(0);
+  const [fearGreedLabel, setFearGreedLabel] = useState<string>('Neutral');
+  const [telegramHeadline, setTelegramHeadline] = useState<string>('Scanning watched channels');
+  const storedToken = readStoredToken();
+  const hasStoredToken = typeof storedToken === 'string' && storedToken.startsWith('eyJ');
+
+  const formatRelativeShort = (ts?: string | null) => {
+    if (!ts) return 'just now';
+    const diffSeconds = Math.max(0, Math.floor((Date.now() - new Date(ts).getTime()) / 1000));
+    if (diffSeconds < 60) return `${diffSeconds}s ago`;
+    const mins = Math.floor(diffSeconds / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    return `${hours}h ago`;
+  };
+
+  const getSignalState = (signal: LandingSignal) => {
+    const oneHour = Number(signal.change1h.replace('%', ''));
+    const day = Number(signal.change24h.replace('%', ''));
+    if (signal.type === 'pump') {
+      if (day >= 12 || oneHour >= 3) return { label: 'Overextended', tone: 'bg-amber-500/15 text-amber-400' };
+      if (signal.strength >= 75) return { label: 'Confirmed', tone: 'bg-emerald-500/15 text-emerald-400' };
+      return { label: 'Emerging', tone: 'bg-sky-500/15 text-sky-400' };
+    }
+    if (day <= -10 || oneHour <= -3) return { label: 'Overextended', tone: 'bg-amber-500/15 text-amber-400' };
+    if (signal.strength >= 70) return { label: 'Failing', tone: 'bg-red-500/15 text-red-400' };
+    return { label: 'Confirmed', tone: 'bg-orange-500/15 text-orange-400' };
+  };
 
   useEffect(() => {
     // If user already has a token, redirect to dashboard
-    const token = localStorage.getItem('pumpradar_auth_token');
+    const token = readStoredToken();
     if (token) {
       try {
         const parsed = JSON.parse(token);
@@ -80,7 +125,97 @@ export default function LandingPage() {
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', onScroll);
     return () => window.removeEventListener('scroll', onScroll);
+  }, [navigate]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchLiveSignals = async () => {
+      try {
+        const res = await axios.get('/api/crypto/signals');
+        if (!res.data?.success) return;
+
+        const mappedSignals: LandingSignal[] = [
+          ...(res.data.data.pump_signals || []).map((signal: any) => ({
+            symbol: signal.symbol,
+            name: signal.name,
+            type: 'pump' as const,
+            strength: signal.signal_strength,
+            change1h: `${signal.price_change_1h >= 0 ? '+' : ''}${Number(signal.price_change_1h ?? 0).toFixed(2)}%`,
+            change24h: `${signal.price_change_24h >= 0 ? '+' : ''}${Number(signal.price_change_24h ?? 0).toFixed(2)}%`,
+            confidence: signal.confidence === 'high' ? 'Strong' : signal.confidence === 'medium' ? 'Medium' : 'Weak',
+            reason: signal.reason,
+            updatedAt: res.data.data.last_updated,
+          })),
+          ...(res.data.data.dump_signals || []).map((signal: any) => ({
+            symbol: signal.symbol,
+            name: signal.name,
+            type: 'dump' as const,
+            strength: signal.signal_strength,
+            change1h: `${signal.price_change_1h >= 0 ? '+' : ''}${Number(signal.price_change_1h ?? 0).toFixed(2)}%`,
+            change24h: `${signal.price_change_24h >= 0 ? '+' : ''}${Number(signal.price_change_24h ?? 0).toFixed(2)}%`,
+            confidence: signal.confidence === 'high' ? 'Strong' : signal.confidence === 'medium' ? 'Medium' : 'Weak',
+            reason: signal.reason,
+            updatedAt: res.data.data.last_updated,
+          })),
+        ]
+          .sort((a, b) => b.strength - a.strength)
+          .slice(0, 3);
+
+        if (!cancelled && mappedSignals.length > 0) {
+          setSignals(mappedSignals);
+          setLastUpdated(res.data.data.last_updated || null);
+          setCoinsAnalyzed(res.data.data.coins_analyzed || 0);
+          if (res.data.data.fear_greed) {
+            setFearGreedLabel(`${res.data.data.fear_greed.value} ${res.data.data.fear_greed.classification}`);
+          }
+        }
+      } catch {
+        // Keep fallback preview cards if live data is temporarily unavailable.
+      } finally {
+        if (!cancelled) {
+          setSignalsLoading(false);
+        }
+      }
+    };
+
+    fetchLiveSignals();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchTelegramHeadline = async () => {
+      try {
+        const token = readStoredToken();
+        if (!token) return;
+        const headers = { Authorization: `Bearer ${token}` };
+        const res = await axios.get('/api/telegram/consensus?hours=24', { headers });
+        if (!cancelled && res.data?.success) {
+          setTelegramHeadline(res.data.data.headline || 'Scanning watched channels');
+        }
+      } catch {
+        // Landing page can stay on generic headline.
+      }
+    };
+
+    fetchTelegramHeadline();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handlePreviewSignalClick = (signal: LandingSignal) => {
+    if (hasStoredToken) {
+      navigate(`/coin/${signal.symbol}?type=${signal.type}`);
+      return;
+    }
+
+    navigate('/auth/register');
+  };
 
   return (
     <div className="min-h-screen bg-[#0a0b0f] text-white overflow-x-hidden">
@@ -112,7 +247,7 @@ export default function LandingPage() {
               className="text-sm bg-emerald-500 hover:bg-emerald-400 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
               data-testid="nav-register-btn"
             >
-              Try Free
+              Start Trial
             </button>
           </div>
 
@@ -126,7 +261,8 @@ export default function LandingPage() {
         {menuOpen && (
           <div className="md:hidden bg-[#0d0e14] border-t border-white/5 px-4 py-4 space-y-3">
             <button onClick={() => { navigate('/auth/login'); setMenuOpen(false); }} className="block w-full text-left text-slate-300 py-2">Sign In</button>
-            <button onClick={() => { navigate('/auth/register'); setMenuOpen(false); }} className="block w-full text-center bg-emerald-500 text-white font-semibold px-4 py-2 rounded-lg">Try Free</button>
+            <button onClick={() => { navigate('/auth/register'); setMenuOpen(false); }} className="block w-full text-center bg-emerald-500 text-white font-semibold px-4 py-2 rounded-lg">Start Trial</button>
+            
           </div>
         )}
       </nav>
@@ -138,23 +274,40 @@ export default function LandingPage() {
         <div className="absolute top-40 right-1/4 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="max-w-4xl mx-auto text-center relative z-10">
+          <div className="mx-auto mb-5 flex max-w-4xl flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-slate-300 backdrop-blur-sm">
+            <span className="inline-flex items-center gap-1 font-semibold text-emerald-400">
+              <Radio className="h-3.5 w-3.5 animate-pulse" />
+              Live now
+            </span>
+            <span>Last refresh {formatRelativeShort(lastUpdated)}</span>
+            <span className="hidden sm:inline text-white/20">•</span>
+            <span>{coinsAnalyzed} coins scanned</span>
+            <span className="hidden sm:inline text-white/20">•</span>
+            <span>Fear & Greed {fearGreedLabel}</span>
+            <span className="hidden sm:inline text-white/20">•</span>
+            <span className="inline-flex items-center gap-1 text-sky-400">
+              <Send className="h-3.5 w-3.5" />
+              {telegramHeadline}
+            </span>
+          </div>
+
           <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold px-4 py-2 rounded-full mb-8">
             <Activity className="h-3 w-3" />
             AI Active — 100+ coins analyzed hourly
           </div>
 
           <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight mb-6 leading-tight">
-            AI-Powered{' '}
+            Real-Time{' '}
             <span className="bg-gradient-to-r from-emerald-400 to-blue-400 bg-clip-text text-transparent">
-              PUMP & DUMP
+              Manipulation
             </span>
             <br />
-            Signals
+            Intelligence
           </h1>
 
           <p className="text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-            PumpRadar analyzes data from CoinGecko and LunarCrush with Gemini AI to detect opportunities
-            and risks in the crypto market — updated every hour.
+            PumpRadar tracks coordinated meme-coin moves using CoinGecko, Telegram source behavior, social-momentum data, and AI refinement when provider access is available
+            to surface early hype, execution traps, and dump risk before the crowd gets hurt.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -164,7 +317,7 @@ export default function LandingPage() {
               data-testid="hero-cta-btn"
             >
               <Zap className="h-5 w-5" />
-              Try Free for 24h
+              Start 7-Day Trial
               <ChevronRight className="h-4 w-4" />
             </button>
             <button
@@ -176,7 +329,12 @@ export default function LandingPage() {
             </button>
           </div>
 
-          <p className="text-sm text-slate-500 mt-4">No credit card required · 24h free trial</p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3 text-sm text-slate-400">
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Start your free 7-day trial</span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Full access to Pro features</span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Secure payment via Stripe</span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Cancel before billing, anytime</span>
+          </div>
         </div>
       </section>
 
@@ -185,19 +343,48 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10">
             <h2 className="text-2xl sm:text-3xl font-bold mb-3">Live AI Signals</h2>
-            <p className="text-slate-400">Example signals generated now — sign in for full access</p>
+            <p className="text-slate-400">
+              {signalsLoading ? 'Loading current market intelligence...' : 'Live manipulation-monitoring snapshots from the latest scan — open an account for full access'}
+            </p>
+          </div>
+
+          <div className="mb-5 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+            <span className="inline-flex items-center gap-2 font-semibold text-amber-300">
+              <Flame className="h-4 w-4" />
+              Market Heat
+            </span>
+            {signals.map((signal) => (
+              <button
+                key={`heat-${signal.symbol}`}
+                type="button"
+                onClick={() => handlePreviewSignalClick(signal)}
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 transition hover:border-white/20 hover:bg-white/10"
+              >
+                <span className="text-slate-400">{signal.symbol}</span>
+                <span className={`ml-2 font-bold ${signal.type === 'pump' ? 'text-emerald-400' : 'text-red-400'}`}>{signal.strength}%</span>
+              </button>
+            ))}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {MOCK_SIGNALS.map((signal) => (
-              <div
+            {signals.map((signal) => (
+              <button
                 key={signal.symbol}
-                className="relative rounded-2xl bg-[#13141a] border border-white/5 p-5 overflow-hidden hover:border-white/10 transition-all"
+                type="button"
+                onClick={() => handlePreviewSignalClick(signal)}
+                className="relative rounded-2xl bg-[#13141a] border border-white/5 p-5 overflow-hidden hover:border-white/10 transition-all text-left hover:-translate-y-0.5 cursor-pointer group"
+                data-testid={`landing-signal-${signal.symbol}`}
               >
                 <div className={`absolute top-0 left-0 w-1 h-full ${signal.type === 'pump' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                <div className="absolute right-4 top-4 h-24 w-24 rounded-full bg-white/5 blur-2xl transition-opacity duration-300 group-hover:opacity-100 opacity-50" />
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <div className="font-bold text-lg">{signal.symbol}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="font-bold text-lg">{signal.symbol}</div>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${getSignalState(signal).tone}`}>
+                        {getSignalState(signal).label}
+                      </span>
+                    </div>
                     <div className="text-xs text-slate-500">{signal.name}</div>
                   </div>
                   <span className={`text-xs font-bold px-2 py-1 rounded-lg ${signal.type === 'pump' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
@@ -224,7 +411,11 @@ export default function LandingPage() {
                     <div className={`text-sm font-bold ${signal.type === 'pump' ? 'text-emerald-400' : 'text-red-400'}`}>{signal.change24h}</div>
                   </div>
                 </div>
-              </div>
+                <div className="mt-3 flex items-center justify-between pt-3 border-t border-white/5 text-xs text-slate-500">
+                  <span>Updated {formatRelativeShort(signal.updatedAt || lastUpdated)}</span>
+                  <span>{hasStoredToken ? 'Open coin analysis' : 'Unlock full signal access'}</span>
+                </div>
+              </button>
             ))}
           </div>
 
@@ -319,7 +510,7 @@ export default function LandingPage() {
             Start trading smarter
           </h2>
           <p className="text-slate-400 mb-8 text-lg">
-            Register in 30 seconds and get free 24h access to all AI signals.
+            Start your free 7-day trial with full Pro access, secure Stripe checkout, and cancel anytime before billing.
           </p>
           <button
             onClick={() => navigate('/auth/register')}
@@ -327,7 +518,7 @@ export default function LandingPage() {
             data-testid="final-cta-btn"
           >
             <Zap className="h-5 w-5" />
-            Create Free Account
+            Start Your Free 7-Day Trial
           </button>
         </div>
       </section>

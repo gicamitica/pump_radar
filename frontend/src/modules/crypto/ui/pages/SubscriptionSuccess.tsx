@@ -1,19 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { CheckCircle, Loader2, AlertCircle, Zap, Calendar } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/shadcn/components/ui/card';
+import { Card, CardContent } from '@/shared/ui/shadcn/components/ui/card';
 import { Button } from '@/shared/ui/shadcn/components/ui/button';
+import { readStoredToken } from '@/shared/utils/tokenStorage';
 
-const getToken = () => localStorage.getItem('pumpradar_auth_token') || sessionStorage.getItem('pumpradar_auth_token');
+const getToken = () => readStoredToken();
 
 export default function SubscriptionSuccess() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const sessionId = searchParams.get('session_id');
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [attempts, setAttempts] = useState(0);
-
+  const [status, setStatus] = useState<'loading' | 'success' | 'trial' | 'error'>('loading');
   useEffect(() => {
     if (!sessionId) {
       setStatus('error');
@@ -37,6 +36,9 @@ export default function SubscriptionSuccess() {
         if (ps === 'paid') {
           setStatus('success');
           return;
+        } else if (ps === 'trialing') {
+          setStatus('trial');
+          return;
         } else if (res.data.data.status === 'expired') {
           setStatus('error');
           return;
@@ -45,7 +47,6 @@ export default function SubscriptionSuccess() {
     } catch (err) {
       console.error('Status check error:', err);
     }
-    setAttempts(attempt + 1);
     setTimeout(() => pollStatus(attempt + 1), 2000);
   };
 
@@ -58,6 +59,27 @@ export default function SubscriptionSuccess() {
               <Loader2 className="h-16 w-16 animate-spin text-primary mx-auto mb-4" />
               <h2 className="text-xl font-bold mb-2">Verifying payment...</h2>
               <p className="text-muted-foreground">Please wait a few seconds</p>
+            </>
+          )}
+          {status === 'trial' && (
+            <>
+              <div className="w-20 h-20 bg-blue-100 dark:bg-blue-950 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Calendar className="h-10 w-10 text-blue-500" />
+              </div>
+              <h2 className="text-2xl font-bold mb-2">Trial Started</h2>
+              <p className="text-muted-foreground mb-6">
+                Your 7-day trial is active and your card was saved securely by Stripe. Billing starts automatically after the trial unless you cancel before it ends.
+              </p>
+              <div className="space-y-3">
+                <Button className="w-full" onClick={() => navigate('/dashboard')} data-testid="go-dashboard-btn">
+                  <Zap className="h-4 w-4 mr-2" />
+                  Open Dashboard
+                </Button>
+                <Button variant="outline" className="w-full" onClick={() => navigate('/subscription')}>
+                  <Calendar className="h-4 w-4 mr-2" />
+                  Review Subscription
+                </Button>
+              </div>
             </>
           )}
           {status === 'success' && (
@@ -74,7 +96,7 @@ export default function SubscriptionSuccess() {
                   <Zap className="h-4 w-4 mr-2" />
                   Open Dashboard
                 </Button>
-                <Button variant="outline" className="w-full" onClick={() => navigate('/pages/pricing')}>
+                <Button variant="outline" className="w-full" onClick={() => navigate('/subscription')}>
                   <Calendar className="h-4 w-4 mr-2" />
                   View Subscription
                 </Button>
@@ -90,7 +112,7 @@ export default function SubscriptionSuccess() {
               <p className="text-muted-foreground mb-6">
                 Could not verify the payment. Please contact support if the amount was charged.
               </p>
-              <Button variant="outline" className="w-full" onClick={() => navigate('/pages/pricing')}>
+              <Button variant="outline" className="w-full" onClick={() => navigate('/subscription')}>
                 Back to Pricing
               </Button>
             </>

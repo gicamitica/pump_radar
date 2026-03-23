@@ -1,5 +1,6 @@
 import type {
   AuthUser,
+  AuthTokens,
   Role,
   LoginDTO,
   RegisterDTO,
@@ -17,7 +18,8 @@ export type { AuthUser, Role, LoginDTO };
 export interface IAuthService {
   // Authentication
   login(dto: LoginDTO): Promise<AuthUser>;
-  register(dto: RegisterDTO): Promise<AuthUser>;
+  completeLogin(user: AuthUser, tokens: AuthTokens, remember?: boolean): Promise<AuthUser>;
+  register(dto: RegisterDTO): Promise<void>;
   logout(): Promise<void>;
   
   // Password Management

@@ -7,7 +7,6 @@ const LoginMinimal = lazy(() => import('@/modules/auth/ui/pages/minimal/LoginMin
 const RegisterMinimal = lazy(() => import('@/modules/auth/ui/pages/minimal/RegisterMinimal'));
 const ForgotMinimal = lazy(() => import('@/modules/auth/ui/pages/minimal/ForgotMinimal'));
 const ResetMinimal = lazy(() => import('@/modules/auth/ui/pages/minimal/ResetMinimal'));
-const VerifyMinimal = lazy(() => import('@/modules/auth/ui/pages/minimal/VerifyMinimal'));
 const MfaSetupMinimal = lazy(() => import('@/modules/auth/ui/pages/minimal/MfaSetupMinimal'));
 const MfaVerifyMinimal = lazy(() => import('@/modules/auth/ui/pages/minimal/MfaVerifyMinimal'));
 

@@ -3,7 +3,7 @@
 ## Overview
 PumpRadar is an AI-powered crypto pump/dump signal detection platform built with React (Katalyst template) + FastAPI + MongoDB.
 
-**Preview URL:** https://crypto-pump-1.preview.emergentagent.com
+**Production URL:** https://pump.arbitrajz.com
 
 ---
 
