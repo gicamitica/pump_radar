@@ -1,0 +1,41 @@
+[
+  {
+    "symbol": "ALPHA",
+    "name": "Alpha Protocol",
+    "sources": {
+      "coingecko": {"market_cap": 650000000, "volume_24h": 90000000, "rank": 132, "price_change_24h": 8.5, "price_change_7d": 18.0, "price_change_30d": 31.2, "fdv": 820000000},
+      "lunarcrush": {"social_burst": 72, "social_volume": 64, "sentiment": 68, "galaxy_score": 74},
+      "geckoterminal": {"dex_liquidity": 2800000, "buys_24h": 3200, "sells_24h": 2200, "thin_liquidity_risk": 22},
+      "defillama": {"tvl": 420000000, "fees_24h": 760000, "revenue_24h": 210000, "protocol_strength": 71},
+      "goplus": {"rug_risk": 14, "contract_risk": 11, "honeypot": false, "owner_privilege_risk": 18, "blacklist_risk": 6},
+      "telegram": {"mentions": 55, "consensus": 66, "crowded_trade_risk": 29},
+      "x": {"narrative_velocity": 62, "creator_concentration": 37, "coordination_risk": 31}
+    }
+  },
+  {
+    "symbol": "BETA",
+    "name": "Beta Meme",
+    "sources": {
+      "coingecko": {"market_cap": 42000000, "volume_24h": 78000000, "rank": 420, "price_change_24h": -11.6, "price_change_7d": -23.7, "price_change_30d": 45.5, "fdv": 180000000},
+      "lunarcrush": {"social_burst": 81, "social_volume": 89, "sentiment": 54, "galaxy_score": 58},
+      "geckoterminal": {"dex_liquidity": 180000, "buys_24h": 1800, "sells_24h": 3600, "thin_liquidity_risk": 84},
+      "defillama": {"tvl": 0, "fees_24h": 0, "revenue_24h": 0, "protocol_strength": 8},
+      "goplus": {"rug_risk": 79, "contract_risk": 74, "honeypot": false, "owner_privilege_risk": 81, "blacklist_risk": 63},
+      "telegram": {"mentions": 90, "consensus": 78, "crowded_trade_risk": 88},
+      "x": {"narrative_velocity": 85, "creator_concentration": 91, "coordination_risk": 83}
+    }
+  },
+  {
+    "symbol": "GAMMA",
+    "name": "Gamma Infra",
+    "sources": {
+      "coingecko": {"market_cap": 1200000000, "volume_24h": 260000000, "rank": 72, "price_change_24h": -2.4, "price_change_7d": 3.2, "price_change_30d": 9.4, "fdv": 1450000000},
+      "lunarcrush": {"social_burst": 48, "social_volume": 44, "sentiment": 52, "galaxy_score": 55},
+      "geckoterminal": {"dex_liquidity": 900000, "buys_24h": 1900, "sells_24h": 2100, "thin_liquidity_risk": 46},
+      "defillama": {"tvl": 910000000, "fees_24h": 1900000, "revenue_24h": 640000, "protocol_strength": 82},
+      "goplus": {"rug_risk": 18, "contract_risk": 14, "honeypot": false, "owner_privilege_risk": 24, "blacklist_risk": 8},
+      "telegram": {"mentions": 34, "consensus": 42, "crowded_trade_risk": 37},
+      "x": {"narrative_velocity": 39, "creator_concentration": 44, "coordination_risk": 36}
+    }
+  }
+]
