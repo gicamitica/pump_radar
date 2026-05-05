@@ -1,5 +1,68 @@
-*.env
-*.env.*
+# dependencies
+node_modules/
+frontend/node_modules/
+backend/.venv/
+.venv/
+
+# builds
+frontend/dist/
+dist/
+build/
+.cache/
+
+# runtime data / logs
+backend/data/
+backend/*.log
+backend/uvicorn-*.log
+*.log
+
+# local env / secrets
+.env
+.env.*
+backend/.env
+frontend/.env
+*.pem
+*.key
+*.crt
+*.sqlite
+*.db
+
+# backups
+*.backup*
+*.bak
+*.pre_fix
+*.fix*.bak
+*.before_*
+*.stable_after_restore
+backend/server.py.before_restore_*
+backend/server.py.backup_*
+frontend/src/**/*.backup*
+frontend/src/**/*.bak
+frontend/src/**/*.before_*
+frontend/src/**/*.pre_fix
+frontend/src/**/*.fix*.bak
+frontend/src/**/*.stable_after_restore
+
+# python cache
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# telegram local auth/session helpers
 backend/.telegram_sessions/
+backend/tg_login_once.py
+
+# extra timestamp backups
+*.bak_*
+frontend/src/**/*.bak_*
+
+# crypto pump engine generated/backups
+backend/crypto_pump_engine/__pycache__/
+backend/crypto_pump_engine/*.bak
+backend/crypto_pump_engine/*.bak_*
+backend/crypto_pump_engine/*.stable_*

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Target, TrendingUp, TrendingDown, CheckCircle2, Clock, Trophy, Loader2, ShieldCheck } from 'lucide-react';
+import { Target, TrendingUp, TrendingDown, CheckCircle2, Clock, Trophy, Loader2, ShieldCheck, Info } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/shadcn/components/ui/card';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/ui/shadcn/components/ui/tooltip';
 import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
 import { readStoredToken } from '@/shared/utils/tokenStorage';
 
@@ -27,10 +28,32 @@ function getScoreTone(value: number) {
   return 'text-red-500';
 }
 
+
 function getVerdict(value: number) {
   if (value >= 70) return 'Reliable';
   if (value >= 50) return 'Promising';
   return 'Weak';
+}
+
+function InfoHint({ text }: { text: string }) {
+  return (
+    <TooltipProvider delayDuration={120}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-4.5 w-4.5 items-center justify-center rounded-full border border-border/80 text-muted-foreground transition hover:border-primary/40 hover:text-primary align-middle"
+            aria-label="More information"
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[260px] text-xs leading-relaxed">
+          {text}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 function ProgressRow({
@@ -72,9 +95,9 @@ function WindowTrend({
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-background/60 p-4">
-      <div className="mb-3 text-sm font-semibold">Validation Window Trend</div>
-      <div className="flex items-end justify-between gap-3">
+    <div className="rounded-2xl border border-border bg-background/60 p-5">
+      <div className="mb-3 inline-flex items-center gap-2 text-sm font-semibold">Validation Window Trend <InfoHint text="Compares signal performance across the 1H, 4H, and 24H validation windows to show where the model holds up best." /></div>
+      <div className="flex items-end justify-between gap-4">
         {points.map((point, index) => {
           const height = point.samples > 0 ? Math.max(18, Math.round((point.value / 100) * 96)) : 12;
           const tone = point.samples > 0
@@ -84,7 +107,7 @@ function WindowTrend({
             : 'bg-muted';
 
           return (
-            <div key={point.label} className="flex flex-1 flex-col items-center gap-2">
+            <div key={point.label} className="flex flex-1 flex-col items-center gap-3">
               <div className="text-xs font-semibold text-muted-foreground">
                 {point.samples > 0 ? `${point.value}%` : '...'}
               </div>
@@ -93,7 +116,7 @@ function WindowTrend({
                   <div className="absolute left-1/2 top-10 h-px w-full bg-border" />
                 )}
                 <div
-                  className={`relative z-10 w-full max-w-[44px] rounded-t-xl transition-all duration-700 ${tone}`}
+                  className={`relative z-10 w-full max-w-[38px] rounded-t-xl transition-all duration-700 ${tone}`}
                   style={{ height }}
                 />
               </div>
@@ -126,7 +149,7 @@ function TimeframeCard({
   const overallTone = hasSamples ? getScoreTone(data.overall) : 'text-muted-foreground';
 
   return (
-    <div className="rounded-2xl border border-border bg-background/60 p-4">
+    <div className="rounded-2xl border border-border bg-background/60 p-5">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -138,7 +161,7 @@ function TimeframeCard({
           <p className="mt-1 text-xs text-muted-foreground">{description}</p>
         </div>
         <div className="text-right">
-          <div className={`text-3xl font-black tracking-tight ${overallTone}`}>
+          <div className={`text-2xl font-bold tracking-tight ${overallTone}`}>
             {hasSamples ? `${data.overall}%` : '...'}
           </div>
           <div className="text-xs text-muted-foreground">
@@ -250,7 +273,7 @@ export default function AccuracyTracker() {
       <CardHeader className="pb-4">
         <CardTitle className="flex items-center gap-2 text-base">
           <Target className="h-5 w-5 text-primary" />
-          Signal Accuracy Tracker
+          Signal Accuracy Tracker <InfoHint text="Measures how often verified signals moved in the correct direction across the 1H, 4H, and 24H windows." />
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -268,21 +291,21 @@ export default function AccuracyTracker() {
               <div className="rounded-2xl border border-primary/10 bg-background/80 p-5">
                 <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
                   <ShieldCheck className="h-4 w-4 text-primary" />
-                  Weighted Model Accuracy
+                  Weighted Model Accuracy <InfoHint text="Weighted overall accuracy based only on signals that already have a verifiable outcome, so very small samples do not distort the score." />
                 </div>
-                <div className={`text-5xl font-black tracking-tight ${getScoreTone(weightedAccuracy)}`}>
+                <div className={`text-3xl font-bold tracking-tight ${getScoreTone(weightedAccuracy)}`}>
                   {weightedAccuracy}%
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Based only on verified signals, weighted by sample count so tiny windows do not distort the score.
                 </p>
-                <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="mt-4 grid grid-cols-2 gap-4">
                   <div className="rounded-xl bg-muted/40 p-3">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                       Verified signals
                     </div>
-                    <div className="mt-1 text-2xl font-bold">{totalSamples}</div>
+                    <div className="mt-1 text-xl font-bold">{totalSamples}</div>
                   </div>
                   <div className="rounded-xl bg-muted/40 p-3">
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">

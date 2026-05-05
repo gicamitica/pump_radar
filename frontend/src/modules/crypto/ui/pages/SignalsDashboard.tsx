@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { TrendingUp, TrendingDown, RefreshCw, Clock, Zap, AlertTriangle, Lock, BarChart3, Activity, Sparkles, Brain, ExternalLink, ShieldCheck, Target, Radio, Flame, TimerReset } from 'lucide-react';
+import { TrendingUp, TrendingDown, RefreshCw, Clock, Zap, AlertTriangle, Lock, Activity, Sparkles, Brain, ExternalLink, ShieldCheck, Target, Radio, Flame, TimerReset, Info } from 'lucide-react';
 import { Card, CardContent } from '@/shared/ui/shadcn/components/ui/card';
 import { Button } from '@/shared/ui/shadcn/components/ui/button';
 import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/shadcn/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/ui/shadcn/components/ui/tooltip';
 import { readStoredToken } from '@/shared/utils/tokenStorage';
 import AccuracyTracker from '../components/AccuracyTracker';
 
@@ -50,16 +51,8 @@ interface SignalData {
   pump_signals: Signal[]; dump_signals: Signal[]; market_summary: string;
   last_updated: string | null; coins_analyzed: number; has_full_access: boolean;
   fear_greed?: { value: number; classification: string }; trending?: string[];
+  new_algorithm_signals?: NewAlgorithmSignal[];
 }
-interface SubscriptionInfo {
-  subscription: string;
-  is_active: boolean;
-  expiry?: string | null;
-  stripe_status?: string | null;
-  pending_plan?: string | null;
-  next_billing_at?: string | null;
-}
-
 interface TelegramConsensusSymbol {
   symbol: string;
   mentions: number;
@@ -81,6 +74,62 @@ interface TelegramConsensusData {
   bullish_mentions: number;
   bearish_mentions: number;
   hot_symbols: TelegramConsensusSymbol[];
+}
+
+interface NewAlgorithmSignal {
+  symbol: string;
+  name?: string;
+  source: 'pump_signal' | 'dump_signal' | 'telegram_early';
+  signal_type: 'pump' | 'dump';
+  platform_id?: string | null;
+  contract_address?: string | null;
+  analysis: {
+    rule_engine: {
+      candidate_id: string;
+      token_address: string;
+      pair_address: string;
+      chain: string;
+      action: 'BUY_NOW' | 'WATCH' | 'SELL' | 'AVOID';
+      verdict: string;
+      score: number;
+      features: {
+        liquidity_usd?: number;
+        safety_score?: number;
+        concentration?: number;
+        volume_24h_usd?: number | null;
+        volume_liquidity_ratio?: number | null;
+        buy_sell_ratio?: number | null;
+        pair_age_minutes?: number | null;
+        social_score?: number | null;
+        boost_count?: number | null;
+        suspect?: boolean;
+        suspect_reasons?: string[];
+      };
+      risks: string[];
+      timestamp?: string;
+    };
+    ai_judge?: {
+      final_action?: 'BUY_NOW' | 'WATCH' | 'SELL' | 'AVOID';
+      final_verdict?: string;
+      confidence?: number;
+      probable_scenario?: string;
+      signal_truth?: string;
+      timing?: string;
+      why_now?: string[];
+      red_flags?: string[];
+      override_preliminary?: boolean;
+      override_reason?: string;
+      ai_reasoning_summary?: string;
+      source?: string;
+    };
+    final?: {
+      action?: 'BUY_NOW' | 'WATCH' | 'SELL' | 'AVOID';
+      verdict?: string;
+      confidence?: number;
+      signal_truth?: string;
+      timing?: string;
+    };
+  };
 }
 
 function deriveConsensusBadge(symbol: TelegramConsensusSymbol): { label: string; className: string } {
@@ -398,8 +447,8 @@ function MarketHeatStrip({ data, telegramConsensus, onOpenCoin }: { data: Signal
           <Flame className="h-4 w-4 text-amber-400" />
         </div>
         <div>
-          <div className="text-sm font-semibold">Market Heat Strip</div>
-          <div className="text-xs text-muted-foreground">Fast scan of what is moving, buzzing, or breaking down right now.</div>
+          <div className="text-sm font-semibold">Live Market Heat <InfoHint text="Fast scan of what is moving right now: pump activity, chatter, early setup, and reversal risk." /></div>
+          <div className="text-xs text-muted-foreground">Fast scan of what is moving or breaking down right now.</div>
         </div>
       </div>
       <div className="flex flex-wrap gap-2 px-4 py-3">
@@ -427,7 +476,7 @@ function ActivityRail({ events }: { events: { id: string; title: string; meta: s
           <TimerReset className="h-4 w-4 text-indigo-400" />
         </div>
         <div>
-          <div className="text-sm font-semibold">Live Activity Rail</div>
+          <div className="text-sm font-semibold">Live Activity Rail <InfoHint text="Short feed of the most recent system changes: new signals, sentiment updates, and important events." /></div>
           <div className="text-xs text-muted-foreground">A quick stream of what changed most recently across the system.</div>
         </div>
       </div>
@@ -462,7 +511,7 @@ function ManipulationIntelStrip({ pump, dump }: { pump: Signal[]; dump: Signal[]
       bg: 'bg-cyan-500/10',
     },
     {
-      label: 'Coordinated Hype',
+      label: 'Coordination Risk',
       symbol: coordinated?.symbol || 'n/a',
       value: `${coordinated?.manipulation_profile?.coordinated_hype_score ?? 0}%`,
       meta: coordinated?.manipulation_profile?.telegram_mentions ? `${coordinated.manipulation_profile.telegram_mentions} mentions` : 'No chatter yet',
@@ -470,7 +519,7 @@ function ManipulationIntelStrip({ pump, dump }: { pump: Signal[]; dump: Signal[]
       bg: 'bg-sky-500/10',
     },
     {
-      label: 'Fast Reversal Risk',
+      label: 'Reversal Risk',
       symbol: dumpRisk?.symbol || 'n/a',
       value: `${dumpRisk?.manipulation_profile?.dump_risk_score ?? 0}%`,
       meta: dumpRisk?.manipulation_profile?.stage || 'Stable',
@@ -488,7 +537,7 @@ function ManipulationIntelStrip({ pump, dump }: { pump: Signal[]; dump: Signal[]
               <div className="text-xs uppercase tracking-wider text-muted-foreground">{card.label}</div>
               <div className="mt-1 flex items-center gap-2">
                 <TickerPill>{card.symbol}</TickerPill>
-                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">coin</span>
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground"></span>
               </div>
             </div>
             <div className={`rounded-xl px-3 py-2 ${card.bg}`}>
@@ -607,10 +656,10 @@ function CrossPlatformConsensusPanel({
       <div className="border-b border-border/60 px-4 py-3">
         <div className="flex items-center gap-2">
           <Radio className="h-4 w-4 text-cyan-400" />
-          <div className="text-sm font-semibold">Cross-Platform Consensus</div>
+          <div className="inline-flex items-center gap-2 text-sm font-semibold">Cross-Platform Signal Check <InfoHint text="Compares signal strength across market structure, Telegram, X, and narrative momentum for the highlighted coin." /></div>
         </div>
         <div className="mt-1 text-xs text-muted-foreground">
-          Market structure, Telegram chatter, X amplification, and narrative momentum ranked together.
+          Market structure, Telegram chatter, X activity, and narrative momentum ranked together.
         </div>
       </div>
       <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
@@ -880,7 +929,7 @@ function AISummaryCard({ data }: { data: SignalData }) {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-xs font-black uppercase tracking-widest bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">AI Market Intelligence</span>
+              <span className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">Market Intelligence <span className="text-foreground"><InfoHint text="Summary of the current scan. If AI is unavailable, this block shows the quantitative fallback and overall market context." /></span></span>
             </div>
             <p className="text-sm leading-relaxed text-foreground/90">{highlightMarketText(data.market_summary, summaryTickers)}</p>
           </div>
@@ -925,7 +974,7 @@ function TelegramConsensusCard({ data, onOpenFeed }: { data: TelegramConsensusDa
               <Zap className="h-4 w-4 text-sky-400" />
             </div>
             <div>
-              <div className="text-xs font-black uppercase tracking-widest text-sky-400">Telegram Consensus</div>
+              <div className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-sky-400">Telegram Signal Check <InfoHint text="Shows which coins are being pushed across active Telegram sources, how many mentions exist, and whether the chatter looks repeated or still thin." /></div>
               <p className="text-sm text-foreground/90 mt-1">{highlightMarketText(data.headline, headlineTickers)}</p>
             </div>
           </div>
@@ -1002,7 +1051,7 @@ function TelegramConsensusCard({ data, onOpenFeed }: { data: TelegramConsensusDa
           </div>
         ) : (
           <div className="rounded-xl border border-border bg-background/60 p-4 text-sm text-muted-foreground">
-            No repeated Telegram coin chatter yet. As new messages arrive from the signal-grade channels, this block will summarize what is being pushed hardest.
+            No repeated Telegram coin chatter yet. As new messages arrive from the active Telegram sources, this block will summarize what is being pushed hardest.
           </div>
         )}
       </div>
@@ -1072,10 +1121,10 @@ function NarrativeBurstCard({
       <div className="border-b border-border/60 px-4 py-3">
         <div className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-fuchsia-400" />
-          <div className="text-sm font-semibold">Narrative Burst</div>
+          <div className="text-sm font-semibold">Narrative Burst <InfoHint text="Summary of the dominant narrative: which ticker is attracting attention, where bullish chatter exists, and where narrative risk is rising." /></div>
         </div>
         <div className="mt-1 text-xs text-muted-foreground">
-          {highlightMarketText('Cross-checking trend, Telegram chatter, and live alert context to spot what story is trying to lead price next.', narrativeTokens)}
+          {highlightMarketText('Cross-checking trend, Telegram chatter, and live alert context.', narrativeTokens)}
         </div>
       </div>
       <div className="grid gap-3 p-4 md:grid-cols-3">
@@ -1114,6 +1163,264 @@ function EmptyState({ type }: { type: 'pump' | 'dump' }) {
   );
 }
 
+function NewAlgorithmSignalsTable({
+  rows,
+  onOpenCoin,
+}: {
+  rows: NewAlgorithmSignal[];
+  onOpenCoin: (symbol: string, type: 'pump' | 'dump') => void;
+}) {
+  if (!rows.length) return null;
+
+  const fmtCompact = (value?: number | null) => {
+    if (value == null || Number.isNaN(Number(value))) return 'n/a';
+    return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(Number(value));
+  };
+
+  const fmtRatio = (value?: number | null) => {
+    if (value == null || Number.isNaN(Number(value))) return 'n/a';
+    return Number(value).toFixed(2);
+  };
+
+  const getFinalVerdict = (row: NewAlgorithmSignal) =>
+    row.analysis.final?.verdict || row.analysis.ai_judge?.final_verdict || row.analysis.rule_engine.verdict || 'Noise';
+
+  const getFinalAction = (row: NewAlgorithmSignal) =>
+    row.analysis.final?.action || row.analysis.ai_judge?.final_action || row.analysis.rule_engine.action || 'WATCH';
+
+  const getConfidence = (row: NewAlgorithmSignal) =>
+    row.analysis.final?.confidence ?? row.analysis.ai_judge?.confidence ?? 0;
+
+  const getTiming = (row: NewAlgorithmSignal) => {
+    const raw = row.analysis.final?.timing || row.analysis.ai_judge?.timing || 'n/a';
+    return String(raw).replace(/_/g, ' ');
+  };
+
+  const getSignalQuality = (row: NewAlgorithmSignal) =>
+    row.analysis.rule_engine.features?.suspect ? 'Suspect' : 'Clean';
+
+  const getSignalQualityClass = (row: NewAlgorithmSignal) =>
+    row.analysis.rule_engine.features?.suspect
+      ? 'bg-amber-500/15 text-amber-400'
+      : 'bg-emerald-500/15 text-emerald-400';
+
+  const getWalletStructure = (row: NewAlgorithmSignal) => {
+    const reasons = row.analysis.rule_engine.features?.suspect_reasons || [];
+    if (reasons.includes('holder_concentration_high')) return 'Distribution risk';
+    if (reasons.includes('holder_concentration_elevated')) return 'Concentrated';
+    return 'Clean structure';
+  };
+
+  const getWalletStructureClass = (label: string) => {
+    if (label === 'Distribution risk') return 'bg-orange-500/15 text-orange-400';
+    if (label === 'Concentrated') return 'bg-amber-500/15 text-amber-400';
+    return 'bg-emerald-500/15 text-emerald-400';
+  };
+
+  const isTechnicalAiError = (value: unknown) => {
+    const text = String(value || '').toLowerCase();
+    return (
+      text.includes('openai error') ||
+      text.includes('apistatuserror') ||
+      text.includes('api status error') ||
+      text.includes('insufficient_quota') ||
+      text.includes('rate limit') ||
+      text.includes('quota') ||
+      text.includes('429')
+    );
+  };
+
+  const cleanTextList = (values?: unknown[]) =>
+    (values || [])
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && !isTechnicalAiError(value));
+
+  const getTrigger = (row: NewAlgorithmSignal) => {
+    const whyNow = cleanTextList(row.analysis.ai_judge?.why_now);
+    if (whyNow.length) return whyNow[0];
+
+    const risks = cleanTextList(row.analysis.rule_engine.risks);
+    if (risks.includes('holder_concentration_high')) return 'holder concentration';
+    if (risks.includes('low_safety_score')) return 'low safety score';
+    if (risks.includes('seller_pressure')) return 'seller pressure';
+    if (risks.includes('weak_turnover')) return 'weak turnover';
+    if (risks.includes('stale_pair')) return 'stale pair';
+    if (risks.includes('hard_veto')) return 'hard veto';
+    return 'signal setup';
+  };
+
+  const formatRiskLabel = (risk: string) => {
+    const value = String(risk || '').trim().toLowerCase();
+    if (!value) return '';
+
+    const map: Record<string, string> = {
+      holder_concentration_high: 'Holder concentration',
+      holder_concentration_elevated: 'Concentrated holders',
+      single_holder_dominance: 'Single holder dominance',
+      distribution_risk: 'Distribution risk',
+      seller_pressure: 'Seller pressure',
+      low_safety_score: 'Low safety score',
+      weak_turnover: 'Weak turnover',
+      stale_pair: 'Stale pair',
+      hard_veto: 'Hard veto',
+      proxy_contract: 'Proxy contract',
+      honeypot_error: 'Honeypot check error',
+      honeypot_unsupported_chain: 'Honeypot unsupported chain',
+      goplus_unsupported_chain: 'GoPlus unsupported chain',
+      safety_heuristic_only: 'Safety heuristic only',
+      rugpull_risk: 'Rugpull risk',
+      exit_liquidity: 'Exit liquidity risk',
+    };
+
+    if (map[value]) return map[value];
+
+    return value
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (m) => m.toUpperCase());
+  };
+
+  const formatRiskList = (risks: string[]) => {
+    const cleaned = risks
+      .map((risk) => formatRiskLabel(risk))
+      .filter(Boolean);
+
+    return cleaned.length ? cleaned.slice(0, 2).join(' • ') : 'Clean';
+  };
+
+  const verdictClass = (verdict: string) => {
+    const value = verdict.toLowerCase();
+    if (value.includes('strong pump')) return 'border border-emerald-500/20 bg-emerald-500/15 text-emerald-400';
+    if (value.includes('pump watch')) return 'border border-sky-500/20 bg-sky-500/15 text-sky-400';
+    if (value.includes('distribution')) return 'border border-orange-500/20 bg-orange-500/15 text-orange-400';
+    if (value.includes('rug') || value.includes('dump')) return 'border border-red-500/20 bg-red-500/15 text-red-400';
+    return 'border border-border bg-muted text-muted-foreground';
+  };
+
+  const actionClass = (action: string) => {
+    const value = action.toUpperCase();
+    if (value === 'BUY_NOW') return 'text-emerald-400';
+    if (value === 'WATCH') return 'text-sky-400';
+    if (value === 'SELL') return 'text-orange-400';
+    if (value === 'AVOID' || value === 'NO_ACTION') return 'text-red-400';
+    return 'text-foreground';
+  };
+
+  return (
+    <Card className="overflow-hidden border border-border/70">
+      <CardContent className="p-0">
+        <div className="border-b border-border/70 bg-background/80 px-4 py-3 backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="inline-flex items-center gap-2 text-sm font-semibold">Decision Table <InfoHint text="Main decision table. Shows the final verdict, action, signal quality, timing, holder structure, trigger, and red flags." /></div>
+
+            </div>
+            <Badge className="border border-primary/20 bg-primary/10 text-primary">
+              {rows.length} signals
+            </Badge>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="sticky top-0 z-10 bg-background/95 text-[11px] uppercase tracking-[0.14em] text-muted-foreground backdrop-blur">
+              <tr className="border-b border-border/70">
+                <th className="px-4 py-3 text-left font-medium">Coin</th>
+                <th className="px-4 py-3 text-left font-medium">Verdict</th>
+                <th className="px-4 py-3 text-left font-medium">Action</th>
+                <th className="px-4 py-3 text-left font-medium">Signal Quality</th>
+                <th className="px-4 py-3 text-left font-medium">Confidence</th>
+                <th className="px-4 py-3 text-left font-medium">Timing</th>
+                <th className="px-4 py-3 text-left font-medium">Wallet / Structure</th>
+                <th className="px-4 py-3 text-left font-medium">Trigger</th>
+                <th className="px-4 py-3 text-left font-medium">24h Volume</th>
+                <th className="px-4 py-3 text-left font-medium">B/S Ratio</th>
+                <th className="px-4 py-3 text-left font-medium">Red Flags</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const features = row.analysis.rule_engine.features || {};
+                const verdict = getFinalVerdict(row);
+                const action = getFinalAction(row);
+                const walletStructure = getWalletStructure(row);
+                const aiRedFlags = cleanTextList(row.analysis.ai_judge?.red_flags);
+                const ruleRisks = cleanTextList(row.analysis.rule_engine.risks);
+                const risks = (aiRedFlags.length ? aiRedFlags : ruleRisks).slice(0, 3);
+
+                return (
+                  <tr
+                    key={`${row.symbol}-${row.analysis.rule_engine.candidate_id}`}
+                    className="border-t border-border/60 transition-colors hover:bg-muted/20"
+                  >
+                    <td className="px-4 py-3 align-top">
+                      <button
+                        type="button"
+                        onClick={() => onOpenCoin(row.symbol, row.signal_type)}
+                        className="group flex items-start gap-2 text-left transition hover:text-primary"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <TickerPill>{row.symbol}</TickerPill>
+                            <ExternalLink className="h-3.5 w-3.5 text-muted-foreground transition group-hover:text-primary" />
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {row.analysis.rule_engine.chain}
+                          </div>
+                        </div>
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <Badge className={verdictClass(verdict)}>{verdict}</Badge>
+                    </td>
+                    <td className={`px-4 py-3 align-top font-semibold ${actionClass(action)}`}>{action}</td>
+                    <td className="px-4 py-3 align-top">
+                      <Badge className={getSignalQualityClass(row)}>{getSignalQuality(row)}</Badge>
+                    </td>
+                    <td className="px-4 py-3 align-top font-semibold">{getConfidence(row)}%</td>
+                    <td className="px-4 py-3 align-top capitalize text-muted-foreground">{getTiming(row)}</td>
+                    <td className="px-4 py-3 align-top">
+                      <Badge className={getWalletStructureClass(walletStructure)}>{walletStructure}</Badge>
+                    </td>
+                    <td className="max-w-[280px] px-4 py-3 align-top whitespace-normal text-muted-foreground">
+                      {getTrigger(row)}
+                    </td>
+                    <td className="px-4 py-3 align-top font-medium">{fmtCompact(features.volume_24h_usd)}</td>
+                    <td className="px-4 py-3 align-top font-medium">{fmtRatio(features.buy_sell_ratio)}</td>
+                    <td className="max-w-[280px] px-4 py-3 align-top whitespace-normal text-xs text-muted-foreground">
+                      {formatRiskList(risks)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+function InfoHint({ text }: { text: string }) {
+  return (
+    <TooltipProvider delayDuration={120}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-4.5 w-4.5 items-center justify-center rounded-full border border-border/80 text-muted-foreground transition hover:border-primary/40 hover:text-primary align-middle"
+            aria-label="More information"
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[260px] text-xs leading-relaxed">
+          {text}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function SkeletonCard() {
   return (
     <div className="animate-pulse rounded-2xl border border-border bg-muted/30 p-4 space-y-3">
@@ -1138,7 +1445,6 @@ export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = 
   const [nextRefresh, setNextRefresh] = useState<number>(3600);
   const [activeTab, setActiveTab] = useState('pump');
   const [subscriptionState, setSubscriptionState] = useState<'expired' | 'required' | null>(null);
-  const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionInfo | null>(null);
   const [telegramConsensus, setTelegramConsensus] = useState<TelegramConsensusData | null>(null);
   const [intelligenceAlerts, setIntelligenceAlerts] = useState<IntelligenceAlert[]>([]);
   const [crossPlatformCards, setCrossPlatformCards] = useState<CrossPlatformConsensusCardItem[]>([]);
@@ -1183,6 +1489,7 @@ export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = 
     else navigate('/dashboard');
   };
 
+
   const fetchSignals = useCallback(async (options?: { manual?: boolean }) => {
     const isManual = Boolean(options?.manual);
     if (isManual) setRefreshing(true);
@@ -1191,7 +1498,7 @@ export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = 
       const token = getToken();
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const params = isManual ? { _ts: Date.now() } : undefined;
-      const [signalsRes, subscriptionRes] = await Promise.all([
+      const [signalsRes] = await Promise.all([
         axios.get('/api/crypto/signals', { headers, params }),
         token ? axios.get('/api/user/subscription', { headers, params }).catch(() => null) : Promise.resolve(null),
       ]);
@@ -1207,11 +1514,6 @@ export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = 
           setLastManualRefreshAt(new Date().toISOString());
           setFlashSignals(true);
         }
-      }
-      if (subscriptionRes?.data?.success) {
-        setSubscriptionInfo(subscriptionRes.data.data);
-      } else if (!token) {
-        setSubscriptionInfo(null);
       }
       if (!token) {
         setTelegramConsensus(null);
@@ -1235,10 +1537,37 @@ export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = 
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
   const fmtTime = (ts: string | null) => ts ? new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
-  const fmtDateTime = (ts?: string | null) => ts ? new Date(ts).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A';
+  const openCoinDetail = (symbol: string, type: 'pump' | 'dump') => {
+    window.location.assign(`/coin/${symbol}?type=${type}`);
+  };
 
   const pump = data?.pump_signals || [];
   const dump = data?.dump_signals || [];
+  const newAlgorithmSignals = data?.new_algorithm_signals || [];
+  const riskSignals = newAlgorithmSignals.filter((row) => {
+    const r = row as any;
+    const verdict = String(r.verdict || r.final_verdict || r.analysis?.final?.verdict || '').toLowerCase();
+    const action = String(r.action || r.final_action || r.analysis?.final?.action || '').toLowerCase();
+    const signalQuality = String(r.signal_quality || r.analysis?.rule_engine?.features?.signal_quality || '').toLowerCase();
+    const walletStructure = String(r.wallet_structure || r.analysis?.rule_engine?.features?.wallet_structure || '').toLowerCase();
+    const trigger = String(r.trigger || r.analysis?.final?.trigger || '').toLowerCase();
+    const risk = String(r.risk || r.analysis?.final?.risk || '').toLowerCase();
+    const redFlags = JSON.stringify(r.red_flags || r.analysis?.final?.red_flags || []).toLowerCase();
+    const text = [verdict, action, signalQuality, walletStructure, trigger, risk, redFlags].join(' ');
+
+    return (
+      text.includes('distribution') ||
+      text.includes('high-risk') ||
+      text.includes('dump risk') ||
+      text.includes('avoid') ||
+      text.includes('suspect') ||
+      text.includes('holder concentration') ||
+      text.includes('single_holder_dominance') ||
+      text.includes('single holder dominance') ||
+      text.includes('rug') ||
+      text.includes('exit liquidity')
+    );
+  });
   const hasAccess = data?.has_full_access !== false;
   const FREE_LIMIT = 3;
   const showAccuracyTracker = !forcedTab && location.pathname === '/dashboard';
@@ -1323,9 +1652,9 @@ export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = 
         <div>
           <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
             <Brain className="h-5 w-5 text-primary" />
-            Manipulation Intelligence
+            Signal Integrity <InfoHint text="Quick live summary of market context, Telegram flow, and manipulation risk for active signals." />
           </h1>
-          <p className="text-muted-foreground text-sm">Early coordinated-move detection using CoinGecko, Telegram source tracking, social momentum inputs, and AI enhancement when available</p>
+          <p className="text-muted-foreground text-sm">Live market + Telegram + risk analysis for early coordinated moves, manipulation risk, and signal quality.</p>
         </div>
         <div className="flex items-center gap-2">
           <div className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${countdownTone.wrap}`}>
@@ -1334,7 +1663,7 @@ export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = 
               <TimerReset className={`relative h-4 w-4 ${countdownTone.icon}`} />
             </div>
             <div className="leading-tight">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Next live scan</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Next market scan</div>
               <div className="text-base font-black tabular-nums">{fmt(nextRefresh)}</div>
             </div>
           </div>
@@ -1346,7 +1675,7 @@ export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = 
           )}
           <Button variant="outline" size="sm" onClick={() => fetchSignals({ manual: true })} disabled={loading || refreshing} data-testid="refresh-btn">
             <RefreshCw className={`h-4 w-4 mr-1.5 ${(loading || refreshing) ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Refreshing...' : 'Refresh Now'}
+            {refreshing ? 'Refreshing...' : 'Refresh'}
           </Button>
         </div>
       </div>
@@ -1355,7 +1684,7 @@ export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = 
         <MarketHeatStrip
           data={data}
           telegramConsensus={telegramConsensus}
-          onOpenCoin={(symbol, type) => navigate(`/coin/${symbol}?type=${type}`)}
+          onOpenCoin={openCoinDetail}
         />
       )}
 
@@ -1366,7 +1695,7 @@ export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = 
         {[
           { icon: <TrendingUp className="h-4 w-4" />, value: pump.length, label: 'PUMP Signals', color: 'text-emerald-500', bg: 'bg-emerald-500/10', testid: 'pump-count', onClick: () => navigate('/dashboard/pump') },
           { icon: <TrendingDown className="h-4 w-4" />, value: dump.length, label: 'DUMP Signals', color: 'text-red-500', bg: 'bg-red-500/10', testid: 'dump-count', onClick: () => navigate('/dashboard/dump') },
-          { icon: <BarChart3 className="h-4 w-4" />, value: data?.coins_analyzed || 0, label: 'Coins Analyzed', color: 'text-blue-500', bg: 'bg-blue-500/10', testid: 'coins-count', onClick: () => navigate('/history') },
+          { icon: <AlertTriangle className="h-4 w-4" />, value: riskSignals.length, label: 'RISK Signals', color: 'text-amber-500', bg: 'bg-amber-500/10', testid: 'risk-count', onClick: () => setActiveTab('risk') },
           { icon: <Activity className="h-4 w-4" />, value: fmtTime(data?.last_updated || null), label: 'Last Update', color: 'text-purple-500', bg: 'bg-purple-500/10', testid: 'last-update', onClick: () => navigate('/history') },
         ].map(s => (
           <Card
@@ -1385,118 +1714,103 @@ export default function SignalsDashboard({ forcedTab }: SignalsDashboardProps = 
         ))}
       </div>
 
-      {/* AI Market Intelligence card */}
-      {data?.market_summary && <AISummaryCard data={data} />}
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.95fr)]">
+        <div className="space-y-5">
+          {data && newAlgorithmSignals.length > 0 && (
+            <NewAlgorithmSignalsTable
+              rows={newAlgorithmSignals}
+              onOpenCoin={openCoinDetail}
+            />
+          )}
 
-      {data && (
-        <NarrativeBurstCard
-          data={data}
-          telegramConsensus={telegramConsensus}
-          alerts={intelligenceAlerts}
-          onOpenCoin={(symbol, type) => navigate(`/coin/${symbol}?type=${type}`)}
-        />
-      )}
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <TabsList className="h-11 rounded-2xl border border-border/70 bg-background/80 p-1 backdrop-blur">
+              <TabsTrigger
+                value="pump"
+                data-testid="tab-pump"
+                className="gap-2 rounded-xl px-4 text-sm transition-all duration-200 data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-500 data-[state=active]:shadow-sm"
+              >
+                <TrendingUp className="h-4 w-4 text-emerald-500" />PUMP <span className="bg-emerald-500/15 text-emerald-500 text-xs font-bold px-1.5 rounded-full">{pump.length}</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="dump"
+                data-testid="tab-dump"
+                className="gap-2 rounded-xl px-4 text-sm transition-all duration-200 data-[state=active]:bg-red-500/10 data-[state=active]:text-red-500 data-[state=active]:shadow-sm"
+              >
+                <TrendingDown className="h-4 w-4 text-red-500" />DUMP <span className="bg-red-500/15 text-red-500 text-xs font-bold px-1.5 rounded-full">{dump.length}</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="risk"
+                data-testid="tab-risk"
+                className="gap-2 rounded-xl px-4 text-sm transition-all duration-200 data-[state=active]:bg-amber-500/10 data-[state=active]:text-amber-500 data-[state=active]:shadow-sm"
+              >
+                <AlertTriangle className="h-4 w-4 text-amber-500" />RISK <span className="bg-amber-500/15 text-amber-500 text-xs font-bold px-1.5 rounded-full">{riskSignals.length}</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="all"
+                data-testid="tab-all"
+                className="rounded-xl px-4 text-sm transition-all duration-200 data-[state=active]:bg-primary/10 data-[state=active]:shadow-sm"
+              >
+                Cards <span className="bg-muted text-muted-foreground text-xs font-bold px-1.5 rounded-full ml-1">{pump.length + dump.length}</span>
+              </TabsTrigger>
+            </TabsList>
 
-      {!!crossPlatformCards.length && (
-        <CrossPlatformConsensusPanel
-          cards={crossPlatformCards}
-          onOpenCoin={(symbol, type) => navigate(`/coin/${symbol}?type=${type}`)}
-        />
-      )}
-
-      {showAccuracyTracker && telegramConsensus && (
-        <TelegramConsensusCard
-          data={telegramConsensus}
-          onOpenFeed={() => navigate('/telegram-signals')}
-        />
-      )}
-
-      {!!intelligenceAlerts.length && (
-        <IntelligenceAlertsCard
-          alerts={intelligenceAlerts}
-          onOpenCoin={(symbol, type) => navigate(`/coin/${symbol}?type=${type}`)}
-        />
-      )}
-
-      {data && activityEvents.length > 0 && <ActivityRail events={activityEvents} />}
-
-      {subscriptionInfo?.subscription === 'trial' && subscriptionInfo?.is_active && (
-        <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 px-4 py-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <div className="font-semibold text-sm">Card-Backed Trial Active</div>
-              <div className="text-xs text-muted-foreground mt-1">
-                Trial active until {fmtDateTime(subscriptionInfo.expiry)}.
-                {subscriptionInfo.pending_plan ? ` After trial, plan switches to ${subscriptionInfo.pending_plan}.` : ''}
-              </div>
-              <div className="text-xs text-muted-foreground mt-1">
-                Next billing at {fmtDateTime(subscriptionInfo.next_billing_at)}. Cancel before then if you do not want the paid plan.
-              </div>
-            </div>
-            <Button size="sm" variant="outline" onClick={() => navigate('/subscription')}>
-              Manage Billing
-            </Button>
-          </div>
+            {(['pump', 'dump', 'risk', 'all'] as const).map(tab => {
+              const signals = tab === 'pump' ? pump : tab === 'dump' ? dump : tab === 'risk' ? [] : [...pump, ...dump];
+              return (
+                <TabsContent key={tab} value={tab} className="mt-4">
+                  {loading
+                    ? <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3 gap-4">{[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}</div>
+                    : signals.length === 0
+                      ? <EmptyState type={tab === 'dump' ? 'dump' : 'pump'} />
+                      : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3 gap-4">
+                          {signals.map((s, i) => <SignalCard key={`${s.signal_type}-${s.symbol}`} signal={s} blurred={!hasAccess && i >= FREE_LIMIT} onNavigate={(url) => window.location.assign(url)} snapshotUpdatedAt={data?.last_updated} flash={flashSignals} />)}
+                        </div>
+                  }
+                </TabsContent>
+              );
+            })}
+          </Tabs>
         </div>
-      )}
 
-      {showAccuracyTracker && <AccuracyTracker />}
+        <div className="space-y-5">
+          {data?.market_summary && <AISummaryCard data={data} />}
 
-      {/* Upgrade Banner */}
-      {!hasAccess && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0" />
-            <div><p className="font-semibold text-sm">Free Trial Expired</p><p className="text-xs text-muted-foreground">Upgrade to Pro for full access to all signals</p></div>
-          </div>
-          <Button size="sm" onClick={() => navigate('/subscription')} data-testid="upgrade-btn">
-            <Zap className="h-4 w-4 mr-2" />Upgrade to Pro
-          </Button>
+          {data && (
+            <NarrativeBurstCard
+              data={data}
+              telegramConsensus={telegramConsensus}
+              alerts={intelligenceAlerts}
+              onOpenCoin={openCoinDetail}
+            />
+          )}
+
+          {!!crossPlatformCards.length && (
+            <CrossPlatformConsensusPanel
+              cards={crossPlatformCards}
+              onOpenCoin={openCoinDetail}
+            />
+          )}
+
+          {showAccuracyTracker && telegramConsensus && (
+            <TelegramConsensusCard
+              data={telegramConsensus}
+              onOpenFeed={() => navigate('/telegram-signals')}
+            />
+          )}
+
+          {!!intelligenceAlerts.length && (
+            <IntelligenceAlertsCard
+              alerts={intelligenceAlerts}
+              onOpenCoin={openCoinDetail}
+            />
+          )}
+
+          {showAccuracyTracker && <AccuracyTracker />}
+
+          {data && activityEvents.length > 0 && <ActivityRail events={activityEvents} />}
         </div>
-      )}
-
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="h-11 rounded-2xl border border-border/70 bg-background/80 p-1 backdrop-blur">
-          <TabsTrigger
-            value="pump"
-            data-testid="tab-pump"
-            className="gap-2 rounded-xl px-4 text-sm transition-all duration-200 data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-500 data-[state=active]:shadow-sm"
-          >
-            <TrendingUp className="h-4 w-4 text-emerald-500" />PUMP <span className="bg-emerald-500/15 text-emerald-500 text-xs font-bold px-1.5 rounded-full">{pump.length}</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="dump"
-            data-testid="tab-dump"
-            className="gap-2 rounded-xl px-4 text-sm transition-all duration-200 data-[state=active]:bg-red-500/10 data-[state=active]:text-red-500 data-[state=active]:shadow-sm"
-          >
-            <TrendingDown className="h-4 w-4 text-red-500" />DUMP <span className="bg-red-500/15 text-red-500 text-xs font-bold px-1.5 rounded-full">{dump.length}</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="all"
-            data-testid="tab-all"
-            className="rounded-xl px-4 text-sm transition-all duration-200 data-[state=active]:bg-primary/10 data-[state=active]:shadow-sm"
-          >
-            All <span className="bg-muted text-muted-foreground text-xs font-bold px-1.5 rounded-full ml-1">{pump.length + dump.length}</span>
-          </TabsTrigger>
-        </TabsList>
-
-        {(['pump', 'dump', 'all'] as const).map(tab => {
-          const signals = tab === 'pump' ? pump : tab === 'dump' ? dump : [...pump, ...dump];
-          return (
-            <TabsContent key={tab} value={tab} className="mt-4">
-              {loading
-                ? <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}</div>
-                : signals.length === 0
-                  ? <EmptyState type={tab === 'all' ? 'pump' : tab} />
-                  : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {signals.map((s, i) => <SignalCard key={`${s.signal_type}-${s.symbol}`} signal={s} blurred={!hasAccess && i >= FREE_LIMIT} onNavigate={navigate} snapshotUpdatedAt={data?.last_updated} flash={flashSignals} />)}
-                    </div>
-              }
-            </TabsContent>
-          );
-        })}
-      </Tabs>
+      </div>
 
       <p className="text-xs text-muted-foreground text-center pb-2 flex items-center justify-center gap-1">
         <AlertTriangle className="h-3 w-3" />

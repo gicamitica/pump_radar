@@ -13,7 +13,7 @@ const getToken = () => readStoredToken();
 interface CoinDetail {
   symbol: string; name: string; image?: string; price: number; price_change_1h: number;
   price_change_24h: number; price_change_7d: number; volume_24h: number; market_cap: number;
-  signal_type: string; signal_strength: number; reason: string; confidence: string; risk_level: string;
+  signal_type: string; requested_signal_type?: string; stored_signal_type?: string; signal_strength: number; reason: string; confidence: string; risk_level: string;
   ai_analysis: string; trend_conclusion: string;
   analysis_sections?: { title: string; body: string }[];
   exchanges: {
@@ -324,6 +324,11 @@ const highlightAssetText = (text: string, symbol?: string, name?: string) => {
   });
 };
 
+const normalizeSignalType = (value?: string | null): 'pump' | 'dump' => {
+  const normalized = (value || '').toLowerCase();
+  return normalized.includes('dump') || normalized.includes('bear') || normalized.includes('breakdown') ? 'dump' : 'pump';
+};
+
 const SetupStatusVisual = ({
   signalType,
   signalStrength,
@@ -431,16 +436,16 @@ const SetupStatusVisual = ({
 
   return (
     <Card className={`overflow-hidden border bg-gradient-to-br ${toneClass}`}>
-      <CardContent className="p-5">
-        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+      <CardContent className="p-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-start gap-4">
-            <div className="relative mt-0.5 h-16 w-16 flex-shrink-0">
+            <div className="relative mt-0.5 h-12 w-12 flex-shrink-0">
               <div className={`absolute inset-0 rounded-2xl blur-xl ${glowClass} animate-pulse`} />
-              <div className={`relative flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 ${iconWrapClass}`}>
-                <Icon className={`h-8 w-8 ${iconAnimationClass}`} />
+              <div className={`relative flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 ${iconWrapClass}`}>
+                <Icon className={`h-6 w-6 ${iconAnimationClass}`} />
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="bg-background/60">
                   Setup Status
@@ -450,18 +455,18 @@ const SetupStatusVisual = ({
                 </Badge>
               </div>
               <div>
-                <div className="text-xl font-bold">{title}</div>
-                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">{subtitle}</p>
+                <div className="text-lg font-bold">{title}</div>
+                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">{subtitle}</p>
               </div>
             </div>
           </div>
 
-          <div className="grid min-w-full grid-cols-3 gap-3 md:min-w-[320px] md:max-w-[360px]">
+          <div className="grid min-w-full grid-cols-3 gap-2 md:min-w-[270px] md:max-w-[300px]">
             {meterItems.map(item => (
-              <div key={item.label} className="rounded-xl border border-border bg-background/70 p-3">
+              <div key={item.label} className="rounded-xl border border-border bg-background/70 p-2.5">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{item.label}</div>
-                <div className="mt-1 text-lg font-bold">{item.value}%</div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className="mt-1 text-base font-bold">{item.value}%</div>
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
                   <div className={`h-full rounded-full ${meterClass}`} style={{ width: `${Math.max(0, Math.min(100, item.value))}%` }} />
                 </div>
               </div>
@@ -477,17 +482,18 @@ export default function CoinDetailPage() {
   const navigate = useNavigate();
   const { symbol } = useParams<{ symbol: string }>();
   const [searchParams] = useSearchParams();
-  const signalType = searchParams.get('type') || 'pump';
+  const requestedSignalType = normalizeSignalType(searchParams.get('type') || 'pump');
   const [data, setData] = useState<CoinDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const effectiveSignalType = normalizeSignalType(data?.requested_signal_type || data?.stored_signal_type || data?.signal_type || requestedSignalType);
   const handleBack = () => {
     if (window.history.length > 1) {
       navigate(-1);
       return;
     }
-    navigate(signalType === 'dump' ? '/dashboard/dump' : signalType === 'pump' ? '/dashboard/pump' : '/dashboard');
+    navigate(effectiveSignalType === 'dump' ? '/dashboard/dump' : effectiveSignalType === 'pump' ? '/dashboard/pump' : '/dashboard');
   };
 
   const fetchCoinDetail = async (manualRefresh = false) => {
@@ -495,6 +501,7 @@ export default function CoinDetailPage() {
       setRefreshing(true);
     } else {
       setLoading(true);
+      setData(null);
     }
 
     setError('');
@@ -502,7 +509,7 @@ export default function CoinDetailPage() {
     try {
       const res = await axios.get(`/api/crypto/coin/${symbol}`, {
         params: {
-          type: signalType,
+          type: requestedSignalType,
           ...(manualRefresh ? { refresh: true, _ts: Date.now() } : {}),
         },
         headers: { Authorization: `Bearer ${getToken()}` },
@@ -528,7 +535,7 @@ export default function CoinDetailPage() {
 
   useEffect(() => {
     void fetchCoinDetail(false);
-  }, [symbol, signalType]);
+  }, [symbol, requestedSignalType]);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -551,7 +558,7 @@ export default function CoinDetailPage() {
     </div>
   );
 
-  const isPump = data.signal_type === 'pump';
+  const isPump = effectiveSignalType === 'pump';
   const signalColor = isPump ? 'text-emerald-500' : 'text-red-500';
   const SignalIcon = isPump ? TrendingUp : TrendingDown;
   const analysisSections = data.analysis_sections?.length
@@ -753,14 +760,14 @@ export default function CoinDetailPage() {
       </div>
 
       {/* Metrics row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         {[
           { label: '1h', val: data.price_change_1h, pct: true },
           { label: '24h', val: data.price_change_24h, pct: true },
           { label: '7d', val: data.price_change_7d, pct: true },
           { label: 'Volume 24h', val: data.volume_24h, pct: false },
         ].map(({ label, val, pct }) => (
-          <Card key={label}><CardContent className="p-3 text-center">
+          <Card key={label}><CardContent className="p-2.5 text-center">
             <div className="text-xs text-muted-foreground mb-1">{label}</div>
             <div className={`text-base font-bold ${pct ? (val >= 0 ? 'text-emerald-500' : 'text-red-500') : ''}`}>
               {pct ? `${val >= 0 ? '+' : ''}${val?.toFixed(2)}%` : `$${(val / 1e6).toFixed(1)}M`}
@@ -769,11 +776,12 @@ export default function CoinDetailPage() {
         ))}
       </div>
 
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.75fr)_340px] items-start">
       {/* Chart */}
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5 text-primary" />Price & Volume (Last 24h)</CardTitle></CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
+        <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><BarChart3 className="h-5 w-5 text-primary" />Price & Volume (Last 24h)</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <ResponsiveContainer width="100%" height={240}>
             <ComposedChart data={data.chart_data}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
               <XAxis dataKey="time" tick={{ fontSize: 11 }} />
@@ -788,8 +796,9 @@ export default function CoinDetailPage() {
         </CardContent>
       </Card>
 
+        <div className="space-y-4">
       <SetupStatusVisual
-        signalType={data.signal_type}
+        signalType={effectiveSignalType}
         signalStrength={data.signal_strength}
         analysisSections={analysisSections}
         manipulation={manipulation}
@@ -818,22 +827,21 @@ export default function CoinDetailPage() {
               </div>
             </div>
           </div>
-          <div className="grid gap-3">
-            {analysisSections.map(section => (
-              <div key={section.title} className="bg-background rounded-xl border border-border p-4">
-                <div className="text-sm font-semibold mb-2">{section.title}</div>
-                <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-line">
-                  {highlightAssetText(section.body, data.symbol, data.name)}
-                </p>
-              </div>
-            ))}
+          <div className="bg-background rounded-xl border border-border p-4">
+            <div className="text-sm font-semibold mb-2">{analysisSections[0]?.title || 'Summary'}</div>
+            <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-line line-clamp-6">
+              {highlightAssetText(analysisSections[0]?.body || data.ai_analysis, data.symbol, data.name)}
+            </p>
           </div>
           <div className="bg-background rounded-xl p-4 border border-primary/10">
-            <div className="text-sm font-semibold text-primary mb-1">Conclusion & Trend:</div>
-            <p className="text-sm leading-relaxed">{highlightAssetText(data.trend_conclusion, data.symbol, data.name)}</p>
+            <div className="text-sm font-semibold text-primary mb-1">Conclusion</div>
+            <p className="text-sm leading-relaxed line-clamp-5">{highlightAssetText(data.trend_conclusion, data.symbol, data.name)}</p>
           </div>
         </CardContent>
       </Card>
+
+        </div>
+      </div>
 
       {manipulation && (
         <Card className="border-sky-500/20 bg-gradient-to-br from-sky-950/20 via-background to-background">

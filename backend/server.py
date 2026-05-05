@@ -2,11 +2,15 @@
 PumpRadar - FastAPI Backend
 Crypto pump/dump signal analyzer with AI, LunarCrush & CoinGecko
 """
+# NOTICE FOR ANY AI/AGENT WORKING IN THIS REPO:
+# Do not modify the frontend unless the user explicitly asks for it in the current conversation.
+# If unsure, stop and ask before touching anything under frontend/.
 import os
 import asyncio
 import logging
 import uuid
 import re
+from collections import Counter
 import base64
 import hmac
 import requests
@@ -23,7 +27,7 @@ from urllib.parse import quote, unquote
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, Response, Cookie
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
@@ -33,6 +37,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import resend
+from crypto_pump_engine.pipeline import PumpEngineError
+from crypto_pump_engine.router import get_pipeline as get_pump_engine_pipeline, router as pump_engine_router
 try:
     from telethon import TelegramClient, events
     from telethon.errors import SessionPasswordNeededError
@@ -50,7 +56,7 @@ JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "10080"))
 RESEND_API_KEY = os.environ["RESEND_API_KEY"]
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "noreply@arbitrajz.com")
 LUNARCRUSH_API_KEY = os.environ["LUNARCRUSH_API_KEY"]
 COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
@@ -62,6 +68,8 @@ TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH", "").strip()
 TELEGRAM_PHONE = os.environ.get("TELEGRAM_PHONE", "").strip()
 TELEGRAM_SESSION_NAME = os.environ.get("TELEGRAM_SESSION_NAME", "pumpradar-telegram").strip() or "pumpradar-telegram"
 TELEGRAM_LIVE_ENABLED = os.environ.get("TELEGRAM_LIVE_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+TELEGRAM_EARLY_SIGNAL_HOURS = 8
+TELEGRAM_EARLY_SIGNAL_LIMIT = 8
 X_API_KEY = os.environ.get("X_API_KEY", "").strip()
 X_API_SECRET = os.environ.get("X_API_SECRET", "").strip()
 X_BEARER_TOKEN = unquote(os.environ.get("X_BEARER_TOKEN", "").strip())
@@ -87,7 +95,9 @@ DASHBOARD_PAYLOAD_CACHE: Dict[str, dict] = {}
 COIN_DETAIL_CACHE: Dict[str, dict] = {}
 TELEGRAM_CONSENSUS_CACHE: Dict[str, dict] = {}
 CROSS_PLATFORM_CACHE: Dict[str, dict] = {}
+NEW_ALGORITHM_SIGNALS_CACHE: Dict[str, dict] = {}
 TELEGRAM_SIGNAL_MAP_CACHE: Dict[str, dict] = {}
+TELEGRAM_CALIBRATION_CACHE: Dict[str, dict] = {}
 SOCIAL_INTELLIGENCE_CACHE: Dict[str, dict] = {}
 COIN_MARKET_CACHE: Dict[str, dict] = {}
 COIN_CHART_CACHE: Dict[str, dict] = {}
@@ -98,6 +108,16 @@ GOPLUS_RUGPULL_CACHE: Dict[str, dict] = {}
 ORDERBOOK_CACHE: Dict[str, dict] = {}
 DERIVATIVES_CACHE: Dict[str, dict] = {}
 CASE_REPLAY_CACHE: Dict[str, dict] = {}
+SIGNAL_SCAN_LOCK = asyncio.Lock()
+SIGNAL_SCAN_STATE: Dict[str, Any] = {
+    "running": False,
+    "trigger": None,
+    "started_at": None,
+    "finished_at": None,
+    "last_snapshot_at": None,
+    "last_error": None,
+    "last_result": None,
+}
 telegram_client: Any = None
 telegram_listener_task: Optional[asyncio.Task] = None
 telegram_auth_state: Dict[str, Any] = {}
@@ -135,6 +155,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(pump_engine_router)
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -150,6 +171,22 @@ def api_ok(data: Any) -> dict:
 
 def api_err(msg: str, code: str = "ERROR") -> dict:
     return {"success": False, "error": {"code": code, "message": msg}}
+
+def build_signal_scan_status() -> dict:
+    def to_iso(value: Any) -> Optional[str]:
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return value
+
+    return {
+        "running": bool(SIGNAL_SCAN_STATE.get("running")),
+        "trigger": SIGNAL_SCAN_STATE.get("trigger"),
+        "started_at": to_iso(SIGNAL_SCAN_STATE.get("started_at")),
+        "finished_at": to_iso(SIGNAL_SCAN_STATE.get("finished_at")),
+        "last_snapshot_at": to_iso(SIGNAL_SCAN_STATE.get("last_snapshot_at")),
+        "last_error": SIGNAL_SCAN_STATE.get("last_error"),
+        "last_result": SIGNAL_SCAN_STATE.get("last_result"),
+    }
 
 def get_memory_cache(cache: Dict[str, dict], key: str, ttl_seconds: int) -> Optional[Any]:
     now = datetime.now(timezone.utc)
@@ -308,8 +345,18 @@ def doc_to_user(doc: dict) -> dict:
 async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
     if not creds:
         raise HTTPException(status_code=401, detail="Not authenticated")
+
+    token = creds.credentials
+
+    if token.startswith("user-access-"):
+        legacy_auth_id = token.replace("user-access-", "", 1)
+        user = await db.users.find_one({"legacy_auth_id": legacy_auth_id})
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return user
+
     try:
-        payload = decode_token(creds.credentials)
+        payload = decode_token(token)
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token")
         user_id = payload.get("sub")
@@ -888,28 +935,65 @@ async def require_active_subscription(user=Depends(get_current_user)) -> dict:
 # ─────────────────────────────────────────────
 CG_HEADERS = {"x-cg-demo-api-key": COINGECKO_API_KEY} if COINGECKO_API_KEY else {}
 
-def get_coingecko_markets(per_page=100) -> List[dict]:
+def get_coingecko_markets(per_page: int = 250, pages: int = 2) -> List[dict]:
     try:
         url = "https://api.coingecko.com/api/v3/coins/markets"
-        params = {
-            "vs_currency": "usd",
-            "order": "volume_desc",
-            "per_page": per_page,
-            "page": 1,
-            "price_change_percentage": "1h,24h,7d",
-            "sparkline": "false",
-        }
-        r = requests.get(url, params=params, headers=CG_HEADERS, timeout=30)
-        if r.status_code == 429:
-            logger.warning("CoinGecko rate limit - waiting 60s")
-            import time
-            time.sleep(60)
+        all_rows: List[dict] = []
+        seen_ids: set[str] = set()
+        for page in range(1, max(1, pages) + 1):
+            params = {
+                "vs_currency": "usd",
+                "order": "volume_desc",
+                "per_page": min(max(1, per_page), 250),
+                "page": page,
+                "price_change_percentage": "1h,24h,7d",
+                "sparkline": "false",
+            }
             r = requests.get(url, params=params, headers=CG_HEADERS, timeout=30)
-        r.raise_for_status()
-        return r.json() or []
+            if r.status_code == 429:
+                logger.warning("CoinGecko rate limit on markets page %s - waiting 20s", page)
+                import time
+                time.sleep(20)
+                r = requests.get(url, params=params, headers=CG_HEADERS, timeout=30)
+            r.raise_for_status()
+            page_rows = r.json() or []
+            if not page_rows:
+                break
+            for row in page_rows:
+                row_id = (row.get("id") or f"{row.get('symbol', '')}:{row.get('name', '')}").strip().lower()
+                if not row_id or row_id in seen_ids:
+                    continue
+                seen_ids.add(row_id)
+                all_rows.append(row)
+        return all_rows
     except Exception as e:
         logger.error(f"CoinGecko error: {e}")
         return []
+
+def get_coingecko_market_snapshot(symbol: str, preferred_name: Optional[str] = None, preferred_coin_id: Optional[str] = None) -> dict:
+    resolved_coin_id = (preferred_coin_id or "").strip() or resolve_coingecko_coin_id(symbol, preferred_name=preferred_name)
+    if not resolved_coin_id:
+        return {}
+    cache_key = f"{resolved_coin_id}::market"
+    cached = get_memory_cache(COIN_MARKET_CACHE, cache_key, ttl_seconds=120)
+    if cached is not None:
+        return cached
+    try:
+        resp = requests.get(
+            "https://api.coingecko.com/api/v3/coins/markets",
+            params={
+                "vs_currency": "usd",
+                "ids": resolved_coin_id,
+                "price_change_percentage": "1h,24h,7d",
+            },
+            headers=CG_HEADERS,
+            timeout=15,
+        )
+        if resp.status_code == 200 and resp.json():
+            return set_memory_cache(COIN_MARKET_CACHE, cache_key, (resp.json() or [])[0])
+    except Exception as e:
+        logger.error("CoinGecko market snapshot error for %s: %s", resolved_coin_id, e)
+    return {}
 
 def get_lunarcrush_data(limit=50) -> List[dict]:
     """Try LunarCrush - gracefully fallback if subscription required"""
@@ -1692,6 +1776,899 @@ def get_coingecko_trending() -> List[str]:
         pass
     return []
 
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+def pick_first_numeric(payload: Optional[dict], *keys: str, default: float = 0.0) -> float:
+    payload = payload or {}
+    for key in keys:
+        value = payload.get(key)
+        parsed = safe_float(value)
+        if parsed is not None:
+            return parsed
+    return default
+
+def build_direction_audit(
+    *,
+    symbol: str,
+    price_change_1h: float,
+    price_change_24h: float,
+    price_change_7d: float,
+    volume_24h: float,
+    market_cap: float,
+    signal_type_hint: Optional[str] = None,
+    signal_strength_hint: Optional[float] = None,
+    pump_strength: Optional[float] = None,
+    dump_strength: Optional[float] = None,
+    is_trending: bool = False,
+) -> dict:
+    pc_1h = _coerce_float(price_change_1h)
+    pc_24h = _coerce_float(price_change_24h)
+    pc_7d = _coerce_float(price_change_7d)
+    volume = max(0.0, _coerce_float(volume_24h))
+    mcap = max(0.0, _coerce_float(market_cap))
+    volume_ratio = (volume / mcap * 100) if mcap else 0.0
+    hinted_strength = max(0.0, _coerce_float(signal_strength_hint))
+    pump_strength_value = max(0.0, _coerce_float(pump_strength))
+    dump_strength_value = max(0.0, _coerce_float(dump_strength))
+
+    bullish_score = 0.0
+    bearish_score = 0.0
+
+    bullish_score += min(18.0, max(pc_1h, 0.0) * 5.0)
+    bearish_score += min(18.0, abs(min(pc_1h, 0.0)) * 5.0)
+
+    bullish_score += min(42.0, max(pc_24h, 0.0) * 1.85)
+    bearish_score += min(42.0, abs(min(pc_24h, 0.0)) * 1.85)
+
+    bullish_score += min(12.0, max(pc_7d, 0.0) * 0.22)
+    bearish_score += min(12.0, abs(min(pc_7d, 0.0)) * 0.22)
+
+    hourly_vs_daily = pc_1h - (pc_24h / 24 if pc_24h else 0.0)
+    if pc_1h > 0 and hourly_vs_daily > 0:
+        bullish_score += min(10.0, hourly_vs_daily * 3.25)
+    if pc_1h < 0 and hourly_vs_daily < 0:
+        bearish_score += min(10.0, abs(hourly_vs_daily) * 3.25)
+
+    if volume_ratio >= 18:
+        if pc_24h >= 0 or pc_1h >= 0:
+            bullish_score += 6.0
+        if pc_24h <= 0 or pc_1h <= 0:
+            bearish_score += 6.0
+    elif volume_ratio >= 10:
+        if pc_24h >= 0:
+            bullish_score += 3.0
+        if pc_24h <= 0:
+            bearish_score += 3.0
+
+    if is_trending and pc_1h > 0 and pc_24h > -4:
+        bullish_score += 5.0
+
+    bullish_score += min(16.0, pump_strength_value * 0.16)
+    bearish_score += min(16.0, dump_strength_value * 0.16)
+
+    if signal_type_hint == "pump":
+        bullish_score += min(8.0, hinted_strength * 0.08)
+    elif signal_type_hint == "dump":
+        bearish_score += min(8.0, hinted_strength * 0.08)
+
+    strong_bullish = pc_1h >= 1.0 and pc_24h >= 8.0
+    strong_bearish = pc_1h <= -1.0 and pc_24h <= -8.0
+    dominant_bullish_context = (
+        pc_24h >= 15.0 and
+        pc_1h < 0 and
+        abs(pc_1h) <= min(4.5, max(2.5, abs(pc_24h) / 6.0))
+    )
+    dominant_bearish_context = (
+        pc_24h <= -15.0 and
+        pc_1h > 0 and
+        pc_1h <= min(4.8, max(2.0, abs(pc_24h) / 4.4))
+    )
+    simple_pullback = (
+        (pc_24h >= 12.0 or dominant_bullish_context) and
+        pc_1h < 0 and
+        abs(pc_1h) <= min(4.2, max(2.8, abs(pc_24h) / 5.0)) and
+        (dominant_bullish_context or bullish_score >= bearish_score - 2.0)
+    )
+    dead_cat_bounce = (
+        (pc_24h <= -12.0 or dominant_bearish_context) and
+        pc_1h > 0 and
+        pc_1h <= min(6.0, max(3.0, abs(pc_24h) / 4.5)) and
+        (dominant_bearish_context or bearish_score >= bullish_score - 2.0)
+    )
+    bullish_reversal_exception = (
+        pc_24h <= -10.0 and
+        pc_1h >= max(5.0, abs(pc_24h) / 3.0) and
+        volume_ratio >= 25.0 and
+        bullish_score >= bearish_score + 10.0
+    )
+    bearish_reversal_exception = (
+        pc_24h >= 10.0 and
+        pc_1h <= -max(5.0, abs(pc_24h) / 3.0) and
+        volume_ratio >= 25.0 and
+        bearish_score >= bullish_score + 10.0
+    )
+
+    score_gap = round(abs(bullish_score - bearish_score), 2)
+    structure_bias = "mixed"
+    resolved_direction = "pump"
+    transition_state = "reversal_watch"
+    narrative_template = "mixed_transition"
+    explicit_exception = False
+
+    if strong_bearish and not bullish_reversal_exception:
+        resolved_direction = "dump"
+        structure_bias = "bearish"
+        transition_state = "dead_cat_bounce" if dead_cat_bounce else "bearish_breakdown"
+        narrative_template = transition_state
+    elif strong_bullish and not bearish_reversal_exception:
+        resolved_direction = "pump"
+        structure_bias = "bullish"
+        transition_state = "bullish_pullback" if simple_pullback else "bullish_continuation"
+        narrative_template = transition_state
+    elif dead_cat_bounce and not bullish_reversal_exception:
+        resolved_direction = "dump"
+        structure_bias = "bearish"
+        transition_state = "dead_cat_bounce"
+        narrative_template = transition_state
+    elif simple_pullback and not bearish_reversal_exception:
+        resolved_direction = "pump"
+        structure_bias = "bullish"
+        transition_state = "bullish_pullback"
+        narrative_template = transition_state
+    else:
+        if bullish_score >= bearish_score:
+            resolved_direction = "pump"
+            transition_state = "bullish_reversal" if pc_24h < 0 < pc_1h else "bullish_continuation"
+            narrative_template = transition_state
+        else:
+            resolved_direction = "dump"
+            transition_state = "bearish_reversal" if pc_24h > 0 > pc_1h else "bearish_breakdown"
+            narrative_template = transition_state
+        if score_gap >= 8:
+            structure_bias = "bullish" if resolved_direction == "pump" else "bearish"
+        else:
+            structure_bias = "mixed"
+            transition_state = "reversal_watch"
+            narrative_template = transition_state
+
+    if bullish_reversal_exception:
+        resolved_direction = "pump"
+        structure_bias = "mixed"
+        transition_state = "bullish_reversal"
+        narrative_template = transition_state
+        explicit_exception = True
+    elif bearish_reversal_exception:
+        resolved_direction = "dump"
+        structure_bias = "mixed"
+        transition_state = "bearish_reversal"
+        narrative_template = transition_state
+        explicit_exception = True
+
+    contradiction = bool(signal_type_hint and signal_type_hint != resolved_direction)
+
+    return {
+        "symbol": symbol,
+        "price_change_1h": round(pc_1h, 2),
+        "price_change_24h": round(pc_24h, 2),
+        "price_change_7d": round(pc_7d, 2),
+        "volume_market_cap_ratio": round(volume_ratio, 2),
+        "pump_strength": round(pump_strength_value, 1),
+        "dump_strength": round(dump_strength_value, 1),
+        "signal_type_hint": signal_type_hint,
+        "signal_strength_hint": round(hinted_strength, 1),
+        "bullish_score": round(bullish_score, 2),
+        "bearish_score": round(bearish_score, 2),
+        "score_gap": score_gap,
+        "structure_bias": structure_bias,
+        "transition_state": transition_state,
+        "resolved_direction": resolved_direction,
+        "narrative_template": narrative_template,
+        "strong_bullish": strong_bullish,
+        "strong_bearish": strong_bearish,
+        "simple_pullback": simple_pullback,
+        "dead_cat_bounce": dead_cat_bounce,
+        "explicit_exception": explicit_exception,
+        "contradiction_with_hint": contradiction,
+    }
+
+def build_signal_source_stack(
+    *,
+    symbol: str,
+    price_change_1h: float,
+    price_change_24h: float,
+    vol_mcap_ratio: float,
+    is_trending: bool,
+    telegram_mentions: int = 0,
+    telegram_sources: int = 0,
+    bullish_mentions: int = 0,
+    bearish_mentions: int = 0,
+    telegram_avg_score: float = 0.0,
+    social_volume: float = 0.0,
+    galaxy_score: float = 0.0,
+    sentiment: float = 0.0,
+    lunar_mentions: float = 0.0,
+    lunar_creators: float = 0.0,
+    lunar_interactions: float = 0.0,
+    lunar_dominance: float = 0.0,
+    venue_count: int = 0,
+    preferred_venue: Optional[dict] = None,
+) -> dict:
+    pc_1h = float(price_change_1h or 0)
+    pc_24h = float(price_change_24h or 0)
+    volume_ratio = float(vol_mcap_ratio or 0)
+    tg_mentions = int(telegram_mentions or 0)
+    tg_sources = int(telegram_sources or 0)
+    bull_mentions = int(bullish_mentions or 0)
+    bear_mentions = int(bearish_mentions or 0)
+    tg_avg = float(telegram_avg_score or 0)
+    social_volume = float(social_volume or 0)
+    galaxy_score = float(galaxy_score or 0)
+    sentiment = float(sentiment or 0)
+    lunar_mentions = float(lunar_mentions or 0)
+    lunar_creators = float(lunar_creators or 0)
+    lunar_interactions = float(lunar_interactions or 0)
+    lunar_dominance = float(lunar_dominance or 0)
+    routes = int(venue_count or 0)
+
+    telegram_score = min(100.0, tg_mentions * 11 + tg_sources * 13 + abs(bull_mentions - bear_mentions) * 8 + max(tg_avg - 45.0, 0.0) * 0.35)
+    lunar_score = min(
+        100.0,
+        social_volume / 18.0 +
+        galaxy_score * 0.42 +
+        max(sentiment, 0.0) * 0.18 +
+        lunar_mentions * 0.45 +
+        lunar_creators * 3.5 +
+        lunar_interactions / 5000.0 +
+        lunar_dominance * 8.0 +
+        (10.0 if is_trending else 0.0)
+    )
+    coingecko_market_score = min(100.0, volume_ratio * 3.5 + abs(pc_1h) * 8.0 + abs(pc_24h) * 1.35 + (10.0 if is_trending else 0.0))
+    execution_score = min(100.0, routes * 18.0 + (10.0 if preferred_venue else 0.0))
+
+    telegram_active = tg_mentions >= 1 or tg_sources >= 1 or bull_mentions >= 1 or bear_mentions >= 1
+    lunar_active = social_volume >= 12 or galaxy_score >= 20 or lunar_mentions >= 6 or lunar_creators >= 2 or lunar_dominance >= 0.05
+    coingecko_market_active = volume_ratio >= 6 or abs(pc_24h) >= 7 or abs(pc_1h) >= 1.5
+    execution_active = routes >= 1
+
+    labels: List[str] = []
+    if telegram_active:
+        labels.append("telegram")
+    if lunar_active:
+        labels.append("lunarcrush")
+    if coingecko_market_active or is_trending:
+        labels.append("coingecko_market")
+    if execution_active:
+        labels.append("coingecko_venues")
+
+    active_layers = len(labels)
+    if execution_active and active_layers >= 4:
+        confirmation_tier = "stacked"
+    elif active_layers >= 3:
+        confirmation_tier = "triple-source"
+    elif active_layers >= 2:
+        confirmation_tier = "dual-source"
+    elif active_layers == 1:
+        confirmation_tier = "single-source"
+    else:
+        confirmation_tier = "thin"
+
+    if telegram_score >= max(lunar_score, coingecko_market_score):
+        primary_driver = "telegram_rumor_flow"
+    elif lunar_score >= max(telegram_score, coingecko_market_score):
+        primary_driver = "lunarcrush_social_flow"
+    else:
+        primary_driver = "coingecko_market_structure"
+
+    if bull_mentions > bear_mentions:
+        sentiment_bias = "bullish social bias"
+    elif bear_mentions > bull_mentions:
+        sentiment_bias = "bearish social bias"
+    elif telegram_active or lunar_active:
+        sentiment_bias = "mixed social bias"
+    else:
+        sentiment_bias = "market-led only"
+
+    summary_parts = []
+    if telegram_active:
+        summary_parts.append(f"Telegram saw {tg_mentions} mentions across {tg_sources} sources")
+    if lunar_active:
+        summary_parts.append(f"LunarCrush social stack is active at {round(lunar_score)}/100")
+    if coingecko_market_active or is_trending:
+        summary_parts.append(f"CoinGecko market confirmation is {round(coingecko_market_score)}/100")
+    if execution_active:
+        preferred_name = ((preferred_venue or {}).get("name") or "preferred venue").strip()
+        summary_parts.append(f"{routes} verified trade route{'s' if routes != 1 else ''} are available via {preferred_name}")
+
+    summary = (
+        f"{symbol} is {confirmation_tier} across "
+        f"{', '.join(labels) if labels else 'thin source coverage'} with {sentiment_bias}."
+    )
+    if summary_parts:
+        summary += " " + ". ".join(summary_parts[:4]) + "."
+
+    return {
+        "labels": labels,
+        "confirmation_tier": confirmation_tier,
+        "primary_driver": primary_driver,
+        "sentiment_bias": sentiment_bias,
+        "telegram_active": telegram_active,
+        "lunarcrush_active": lunar_active,
+        "coingecko_market_active": coingecko_market_active,
+        "execution_active": execution_active,
+        "telegram_score": round(telegram_score),
+        "lunarcrush_score": round(lunar_score),
+        "coingecko_market_score": round(coingecko_market_score),
+        "execution_score": round(execution_score),
+        "verified_routes": routes,
+        "summary": summary,
+    }
+
+def score_market_candidate(candidate: dict, fg_value: float) -> dict:
+    vol_mcap = float(candidate.get("vol_mcap_ratio", 0) or 0)
+    pc_1h = float(candidate.get("price_change_1h", 0) or 0)
+    pc_24h = float(candidate.get("price_change_24h", 0) or 0)
+    pc_7d = float(candidate.get("price_change_7d", 0) or 0)
+    is_trending = bool(candidate.get("is_trending", False))
+    social_volume = float(candidate.get("social_volume", 0) or 0)
+    sentiment = float(candidate.get("sentiment", 0) or 0)
+    galaxy_score = float(candidate.get("galaxy_score", 0) or 0)
+    telegram_mentions = int(candidate.get("telegram_mentions", 0) or 0)
+    telegram_sources = int(candidate.get("telegram_sources", 0) or 0)
+    bullish_mentions = int(candidate.get("bullish_mentions", 0) or 0)
+    bearish_mentions = int(candidate.get("bearish_mentions", 0) or 0)
+    telegram_avg_score = float(candidate.get("telegram_avg_score", 0) or 0)
+    lunar_mentions = float(candidate.get("lunar_mentions", 0) or 0)
+    lunar_creators = float(candidate.get("lunar_creators", 0) or 0)
+    lunar_interactions = float(candidate.get("lunar_interactions", 0) or 0)
+    lunar_dominance = float(candidate.get("lunar_dominance", 0) or 0)
+
+    vol_score = min(100, (vol_mcap / 20) * 100) if vol_mcap > 5 else vol_mcap * 10
+
+    momentum_1h_normalized = pc_1h * 24
+    momentum_divergence = momentum_1h_normalized - pc_24h
+    momentum_score = min(100, max(0, 50 + momentum_divergence * 2))
+
+    trend_score = 0.0
+    if pc_1h > 0 and pc_24h > 0:
+        trend_score += 40
+    if pc_1h > pc_24h / 24:
+        trend_score += 30
+    if is_trending:
+        trend_score += 30
+
+    sentiment_boost = 0.0
+    if fg_value < 30 and pc_1h > 0:
+        sentiment_boost = 20
+    elif fg_value > 60 and pc_1h > 2:
+        sentiment_boost = 15
+
+    bullish_media_bias = max(0, bullish_mentions - bearish_mentions)
+    bearish_media_bias = max(0, bearish_mentions - bullish_mentions)
+    media_interest_score = min(100, telegram_mentions * 10 + telegram_sources * 12 + max(telegram_avg_score - 45, 0) * 0.45)
+    bullish_media_score = min(100, media_interest_score * 0.55 + bullish_media_bias * 16 + (10 if bullish_mentions and bullish_mentions >= bearish_mentions else 0))
+    bearish_media_score = min(100, media_interest_score * 0.55 + bearish_media_bias * 18 + (10 if bearish_mentions and bearish_mentions >= bullish_mentions else 0))
+
+    accumulation_score = 0.0
+    if pc_1h > 0:
+        accumulation_score += min(26, pc_1h * 7.5)
+    if -8 <= pc_24h <= 18:
+        accumulation_score += max(0, 18 - abs(pc_24h - 4))
+    if vol_mcap >= 6:
+        accumulation_score += min(24, vol_mcap * 1.7)
+    if social_volume or galaxy_score:
+        accumulation_score += min(18, social_volume / 22 + galaxy_score * 0.18 + max(sentiment, 0) * 0.1)
+    if bullish_media_bias > 0:
+        accumulation_score += min(16, bullish_media_bias * 5 + telegram_sources * 3)
+    accumulation_score = min(100, accumulation_score)
+
+    selling_pressure = 0.0
+    if pc_1h < 0 and pc_24h < 0:
+        selling_pressure = min(100, abs(pc_1h) * 10 + abs(pc_24h) * 2)
+
+    decline_acceleration = 0.0
+    if pc_1h < 0 and pc_1h < pc_24h / 24:
+        decline_acceleration = min(100, abs(pc_1h - pc_24h / 24) * 15)
+
+    dump_vol_score = vol_score if pc_1h < -2 else 0.0
+    dump_narrative_score = 0.0
+    if pc_1h < 0:
+        dump_narrative_score += min(22, abs(pc_1h) * 8)
+    if pc_24h < 0:
+        dump_narrative_score += min(24, abs(pc_24h) * 1.1)
+    if vol_mcap >= 6:
+        dump_narrative_score += min(18, vol_mcap * 1.2)
+    if bearish_media_bias > 0:
+        dump_narrative_score += min(20, bearish_media_bias * 6 + telegram_sources * 4)
+    dump_narrative_score = min(100, dump_narrative_score)
+
+    social_confirmation_score = min(100, social_volume / 18 + galaxy_score * 0.45 + max(sentiment, 0) * 0.2 + (18 if is_trending else 0))
+
+    pump_strength = (
+        vol_score * 0.22 +
+        momentum_score * 0.24 +
+        trend_score * 0.16 +
+        sentiment_boost * 0.08 +
+        accumulation_score * 0.18 +
+        bullish_media_score * 0.12
+    )
+
+    dump_strength = (
+        dump_vol_score * 0.18 +
+        decline_acceleration * 0.24 +
+        selling_pressure * 0.18 +
+        (15 if fg_value > 70 else 0) * 0.08 +
+        dump_narrative_score * 0.20 +
+        bearish_media_score * 0.12
+    )
+
+    direction_audit = build_direction_audit(
+        symbol=candidate.get("symbol", ""),
+        price_change_1h=pc_1h,
+        price_change_24h=pc_24h,
+        price_change_7d=pc_7d,
+        volume_24h=candidate.get("volume_24h", 0),
+        market_cap=candidate.get("market_cap", 0),
+        pump_strength=pump_strength,
+        dump_strength=dump_strength,
+        is_trending=is_trending,
+    )
+    source_stack = build_signal_source_stack(
+        symbol=candidate.get("symbol", ""),
+        price_change_1h=pc_1h,
+        price_change_24h=pc_24h,
+        vol_mcap_ratio=vol_mcap,
+        is_trending=is_trending,
+        telegram_mentions=telegram_mentions,
+        telegram_sources=telegram_sources,
+        bullish_mentions=bullish_mentions,
+        bearish_mentions=bearish_mentions,
+        telegram_avg_score=telegram_avg_score,
+        social_volume=social_volume,
+        galaxy_score=galaxy_score,
+        sentiment=sentiment,
+        lunar_mentions=lunar_mentions,
+        lunar_creators=lunar_creators,
+        lunar_interactions=lunar_interactions,
+        lunar_dominance=lunar_dominance,
+    )
+
+    return {
+        "pump_strength": round(pump_strength, 1),
+        "dump_strength": round(dump_strength, 1),
+        "vol_score": round(vol_score, 1),
+        "momentum_score": round(momentum_score, 1),
+        "accumulation_score": round(accumulation_score, 1),
+        "social_confirmation_score": round(social_confirmation_score, 1),
+        "bullish_media_score": round(bullish_media_score, 1),
+        "bearish_media_score": round(bearish_media_score, 1),
+        "direction_audit": direction_audit,
+        "source_stack": source_stack,
+    }
+
+def build_market_candidate_record(
+    coin: dict,
+    *,
+    lc_lookup: Optional[Dict[str, dict]] = None,
+    telegram_stats_map: Optional[Dict[str, dict]] = None,
+    trending_symbols: Optional[List[str]] = None,
+    origin: str = "coingecko_scan",
+    telegram_seed: Optional[dict] = None,
+) -> dict:
+    lc_lookup = lc_lookup or {}
+    telegram_stats_map = telegram_stats_map or {}
+    trending_symbols = trending_symbols or []
+
+    sym = (coin.get("symbol") or "").upper()
+    lc = lc_lookup.get(sym, {})
+    telegram_stats = telegram_stats_map.get(sym, {})
+    price = coin.get("current_price") or coin.get("price") or (telegram_seed or {}).get("reference_price") or 0
+    vol = coin.get("total_volume") or coin.get("volume_24h") or 0
+    mcap = coin.get("market_cap") or 0
+    pc = coin.get("price_change_percentage_1h_in_currency") or coin.get("price_change_percentage_1h") or coin.get("price_change_1h") or 0
+    pc24 = coin.get("price_change_percentage_24h") or coin.get("price_change_24h") or 0
+    pc7d = coin.get("price_change_percentage_7d_in_currency") or coin.get("price_change_percentage_7d") or coin.get("price_change_7d") or 0
+    vol_mcap_ratio = (vol / mcap * 100) if mcap > 0 else 0
+    social_volume = lc.get("social_volume") or lc.get("sv") or 0
+    sentiment = lc.get("sentiment") or lc.get("ss") or 0
+    galaxy_score = lc.get("galaxy_score") or lc.get("gs") or 0
+    lunar_mentions = pick_first_numeric(lc, "posts_active", "posts", "mentions", "social_posts", default=0.0)
+    lunar_creators = pick_first_numeric(lc, "contributors_active", "social_contributors", "creators", "contributors", default=0.0)
+    lunar_interactions = pick_first_numeric(lc, "interactions", "social_interactions", "engagements", default=0.0)
+    lunar_dominance = pick_first_numeric(lc, "social_dominance", "dominance", default=0.0)
+    is_trending = sym in trending_symbols
+    mentions = int(telegram_stats.get("mentions") or (telegram_seed or {}).get("mentions") or 0)
+    unique_sources = int(telegram_stats.get("unique_sources") or (telegram_seed or {}).get("unique_sources") or 0)
+    bullish_mentions = int(telegram_stats.get("bullish_mentions") or (telegram_seed or {}).get("bullish_mentions") or 0)
+    bearish_mentions = int(telegram_stats.get("bearish_mentions") or (telegram_seed or {}).get("bearish_mentions") or 0)
+    avg_score = float(telegram_stats.get("avg_score") or (telegram_seed or {}).get("avg_score") or 0)
+
+    return {
+        "id": coin.get("id", "") or (telegram_seed or {}).get("coin_id", ""),
+        "symbol": sym,
+        "name": coin.get("name", "") or (telegram_seed or {}).get("coin_name") or sym,
+        "price": price,
+        "market_cap": mcap,
+        "volume_24h": vol,
+        "vol_mcap_ratio": round(vol_mcap_ratio, 2),
+        "price_change_1h": round(float(pc), 2) if pc else 0,
+        "price_change_24h": round(float(pc24), 2) if pc24 else 0,
+        "price_change_7d": round(float(pc7d), 2) if pc7d else 0,
+        "image": coin.get("image"),
+        "is_trending": is_trending,
+        "social_volume": social_volume,
+        "sentiment": sentiment,
+        "galaxy_score": galaxy_score,
+        "lunar_mentions": round(lunar_mentions, 1),
+        "lunar_creators": round(lunar_creators, 1),
+        "lunar_interactions": round(lunar_interactions, 1),
+        "lunar_dominance": round(lunar_dominance, 4),
+        "telegram_mentions": mentions,
+        "telegram_sources": unique_sources,
+        "bullish_mentions": bullish_mentions,
+        "bearish_mentions": bearish_mentions,
+        "telegram_avg_score": round(avg_score, 1),
+        "candidate_origin": origin,
+    }
+
+def explain_market_candidate_rejection(
+    *,
+    price: float,
+    volume_24h: float,
+    market_cap: float,
+    vol_mcap_ratio: float,
+    is_trending: bool,
+    social_volume: float,
+    galaxy_score: float,
+    telegram_mentions: int,
+    telegram_sources: int,
+    bullish_mentions: int,
+    bearish_mentions: int,
+) -> List[str]:
+    reasons: List[str] = []
+    if price <= 0 or price < 0.0000001:
+        reasons.append("price_missing_or_too_small")
+    if volume_24h <= 0:
+        reasons.append("volume_missing")
+    if reasons:
+        return reasons
+
+    has_market_activity = volume_24h >= 15_000 or vol_mcap_ratio >= 3
+    has_social_activity = social_volume >= 12 or galaxy_score >= 20 or is_trending
+    has_telegram_activity = (
+        telegram_mentions >= 1 or
+        telegram_sources >= 1 or
+        bullish_mentions >= 1 or
+        bearish_mentions >= 1
+    )
+
+    if market_cap > 0 and market_cap >= 100_000:
+        return []
+    if has_market_activity or has_social_activity or has_telegram_activity:
+        return []
+
+    reasons.append("insufficient_market_social_or_telegram_activity")
+    return reasons
+
+def should_include_market_candidate(
+    *,
+    price: float,
+    volume_24h: float,
+    market_cap: float,
+    vol_mcap_ratio: float,
+    is_trending: bool,
+    social_volume: float,
+    galaxy_score: float,
+    telegram_mentions: int,
+    telegram_sources: int,
+    bullish_mentions: int,
+    bearish_mentions: int,
+) -> bool:
+    return len(explain_market_candidate_rejection(
+        price=price,
+        volume_24h=volume_24h,
+        market_cap=market_cap,
+        vol_mcap_ratio=vol_mcap_ratio,
+        is_trending=is_trending,
+        social_volume=social_volume,
+        galaxy_score=galaxy_score,
+        telegram_mentions=telegram_mentions,
+        telegram_sources=telegram_sources,
+        bullish_mentions=bullish_mentions,
+        bearish_mentions=bearish_mentions,
+    )) == 0
+
+def is_true_pump_candidate(candidate: dict) -> bool:
+    direction_audit = candidate.get("direction_audit") or {}
+    if direction_audit.get("resolved_direction") != "pump":
+        return False
+    source_stack = candidate.get("source_stack") or {}
+
+    pc_1h = float(candidate.get("price_change_1h", 0) or 0)
+    pc_24h = float(candidate.get("price_change_24h", 0) or 0)
+    vol_mcap = float(candidate.get("vol_mcap_ratio", 0) or 0)
+    pump_strength = float(candidate.get("pump_strength", 0) or 0)
+    accumulation_score = float(candidate.get("accumulation_score", 0) or 0)
+    bullish_media_score = float(candidate.get("bullish_media_score", 0) or 0)
+    social_confirmation_score = float(candidate.get("social_confirmation_score", 0) or 0)
+    is_trending = bool(candidate.get("is_trending"))
+    telegram_mentions = int(candidate.get("telegram_mentions", 0) or 0)
+    bullish_mentions = int(candidate.get("bullish_mentions", 0) or 0)
+    telegram_sources = int(candidate.get("telegram_sources", 0) or 0)
+
+    momentum_ok = (pc_24h >= 7 and pc_1h >= 0.6) or pc_1h >= 1.8
+    attention_ok = (
+        bullish_media_score >= 40 or
+        social_confirmation_score >= 28 or
+        accumulation_score >= 56 or
+        is_trending or
+        bullish_mentions >= 1 or
+        telegram_sources >= 1 or
+        telegram_mentions >= 2
+    )
+    source_confirmed = (
+        bool(source_stack.get("telegram_active")) or
+        bool(source_stack.get("lunarcrush_active")) or
+        bool(candidate.get("is_trending")) or
+        bullish_media_score >= 55
+    )
+    market_confirmed = bool(source_stack.get("coingecko_market_active")) or vol_mcap >= 6
+    return (
+        pump_strength >= 58 and
+        vol_mcap >= 6 and
+        momentum_ok and
+        attention_ok and
+        source_confirmed and
+        market_confirmed
+    )
+
+def is_true_dump_candidate(candidate: dict) -> bool:
+    direction_audit = candidate.get("direction_audit") or {}
+    if direction_audit.get("resolved_direction") != "dump":
+        return False
+    source_stack = candidate.get("source_stack") or {}
+
+    pc_1h = float(candidate.get("price_change_1h", 0) or 0)
+    pc_24h = float(candidate.get("price_change_24h", 0) or 0)
+    vol_mcap = float(candidate.get("vol_mcap_ratio", 0) or 0)
+    dump_strength = float(candidate.get("dump_strength", 0) or 0)
+    bearish_media_score = float(candidate.get("bearish_media_score", 0) or 0)
+    social_confirmation_score = float(candidate.get("social_confirmation_score", 0) or 0)
+    telegram_mentions = int(candidate.get("telegram_mentions", 0) or 0)
+    bearish_mentions = int(candidate.get("bearish_mentions", 0) or 0)
+    telegram_sources = int(candidate.get("telegram_sources", 0) or 0)
+    is_trending = bool(candidate.get("is_trending"))
+
+    momentum_ok = (pc_24h <= -4 and pc_1h <= -0.5) or pc_1h <= -1.2
+    narrative_ok = (
+        bearish_media_score >= 28 or
+        bearish_mentions >= 1 or
+        telegram_sources >= 1 or
+        telegram_mentions >= 1 or
+        social_confirmation_score >= 22 or
+        is_trending
+    )
+    source_confirmed = (
+        bool(source_stack.get("telegram_active")) or
+        bool(source_stack.get("lunarcrush_active")) or
+        bool(source_stack.get("coingecko_market_active")) or
+        bearish_media_score >= 38 or
+        vol_mcap >= 6
+    )
+    market_confirmed = bool(source_stack.get("coingecko_market_active")) or vol_mcap >= 4
+    return (
+        dump_strength >= 46 and
+        vol_mcap >= 4 and
+        momentum_ok and
+        narrative_ok and
+        source_confirmed and
+        market_confirmed
+    )
+
+
+def evaluate_snapshot_signal_gate(signal: dict, signal_type: str) -> dict:
+    profile = signal.get("manipulation_profile") or {}
+    decision = signal.get("decision_engine") or {}
+    source_stack = signal.get("signal_sources") or signal.get("source_stack") or {}
+    asset_identity = signal.get("asset_identity") or {}
+    rugpull_profile = signal.get("rugpull_profile") or {}
+    direction = profile.get("resolved_direction") or signal.get("signal_type") or signal_type
+
+    hard_reasons: List[str] = []
+    soft_reasons: List[str] = []
+
+    if direction != signal_type:
+        hard_reasons.append("direction_mismatch")
+
+    signal_strength = float(signal.get("signal_strength", 0) or 0)
+    pc_1h = float(signal.get("price_change_1h", 0) or 0)
+    pc_24h = float(signal.get("price_change_24h", 0) or 0)
+    volume_ratio = float(profile.get("volume_market_cap_ratio", 0) or decision.get("volume_market_cap_ratio") or 0)
+    mentions = int(profile.get("telegram_mentions", 0) or 0)
+    bullish_mentions = int(profile.get("bullish_mentions", 0) or 0)
+    bearish_mentions = int(profile.get("bearish_mentions", 0) or 0)
+    sources = int(profile.get("telegram_sources", 0) or 0)
+    stage = (profile.get("stage") or "").strip().lower()
+    social_burst = float(profile.get("social_burst_score", 0) or 0)
+    coordination = float(profile.get("coordinated_hype_score", 0) or 0)
+    dump_risk = float(profile.get("dump_risk_score", 0) or 0)
+    execution_score = float(decision.get("execution_score", 0) or 0)
+    venue_count = int(decision.get("venue_count", 0) or source_stack.get("verified_routes", 0) or 0)
+    source_tier = (source_stack.get("confirmation_tier") or "thin").strip().lower()
+    social_confirmed = bool(source_stack.get("telegram_active")) or bool(source_stack.get("lunarcrush_active")) or bool(signal.get("is_trending"))
+    telegram_confirmed = bool(source_stack.get("telegram_active"))
+    market_confirmed = bool(source_stack.get("coingecko_market_active"))
+    identity_classification = (asset_identity.get("classification") or "").strip().lower()
+    meme_score = float(asset_identity.get("meme_score", 0) or 0)
+    speculative_score = float(asset_identity.get("speculative_score", 0) or 0)
+    serious_score = float(asset_identity.get("serious_score", 0) or 0)
+    rugpull_score = float(rugpull_profile.get("score", 0) or 0)
+
+    if venue_count < 1:
+        hard_reasons.append("no_trade_route")
+
+    if signal_type == "pump":
+        strong_override = (
+            market_confirmed and
+            venue_count >= 1 and
+            signal_strength >= 66 and
+            volume_ratio >= 3 and
+            execution_score >= 40
+        )
+
+        market_structure_ok = (
+            market_confirmed and
+            venue_count >= 1 and
+            signal_strength >= 54 and
+            volume_ratio >= 2.5 and
+            (
+                (pc_24h >= 2 and pc_1h >= 0) or
+                pc_1h >= 0.4 or
+                coordination >= 18
+            )
+        )
+
+        if signal_strength < 54:
+            soft_reasons.append("signal_strength_below_pump_threshold")
+        if volume_ratio < 2.5:
+            soft_reasons.append("volume_ratio_below_pump_threshold")
+        if not (((pc_24h >= 2 and pc_1h >= 0) or pc_1h >= 0.4 or coordination >= 18 or social_burst >= 18)):
+            soft_reasons.append("price_momentum_not_confirmed_for_pump")
+        if not (
+            social_burst >= 8 or coordination >= 8 or bullish_mentions >= 1 or mentions >= 1 or
+            sources >= 1 or signal.get("is_trending") or market_structure_ok
+        ):
+            soft_reasons.append("telegram_or_social_heat_too_thin_for_pump")
+        if stage and stage not in {
+            "breakout active", "coordinated hype", "extended breakout", "stealth build",
+            "pullback continuation", "reversal attempt", "accumulation", "early breakout"
+        }:
+            soft_reasons.append("stage_not_allowed_for_pump")
+        if execution_score < 35:
+            soft_reasons.append("execution_score_too_low_for_pump")
+        if not (social_confirmed or market_confirmed or market_structure_ok):
+            soft_reasons.append("social_confirmation_missing_for_pump")
+        if not (
+            source_tier in {"stacked", "triple-source", "dual-source", "single-source"} or
+            (market_confirmed and venue_count >= 1) or
+            market_structure_ok
+        ):
+            soft_reasons.append("source_stack_too_thin_for_pump")
+        if not (
+            identity_classification in {"meme", "speculative", "mixed", "unknown"} or
+            meme_score >= 28 or speculative_score >= 30 or serious_score <= 75 or market_structure_ok
+        ):
+            soft_reasons.append("asset_profile_not_suitable_for_pump")
+
+        eligible = len(hard_reasons) == 0 and (strong_override or market_structure_ok or len(soft_reasons) <= 2)
+        return {
+            "eligible": eligible,
+            "reasons": hard_reasons + ([] if eligible and (strong_override or market_structure_ok) else soft_reasons),
+        }
+
+    strong_override = (
+        market_confirmed and
+        venue_count >= 1 and
+        signal_strength >= 62 and
+        volume_ratio >= 3 and
+        (dump_risk >= 55 or rugpull_score >= 35)
+    )
+
+    market_structure_ok = (
+        market_confirmed and
+        venue_count >= 1 and
+        signal_strength >= 52 and
+        volume_ratio >= 2.5 and
+        (
+            (pc_24h <= -2 and pc_1h <= 0) or
+            pc_1h <= -0.6 or
+            dump_risk >= 58
+        )
+    )
+
+    if signal_strength < 52:
+        soft_reasons.append("signal_strength_below_dump_threshold")
+    if volume_ratio < 2.5:
+        soft_reasons.append("volume_ratio_below_dump_threshold")
+    if not (((pc_24h <= -2 and pc_1h <= 0) or pc_1h <= -0.6 or dump_risk >= 58)):
+        soft_reasons.append("price_momentum_not_confirmed_for_dump")
+    if not (
+        bearish_mentions >= 1 or mentions >= 1 or sources >= 1 or social_burst >= 8 or
+        coordination >= 8 or dump_risk >= 52 or market_structure_ok
+    ):
+        soft_reasons.append("telegram_or_social_heat_too_thin_for_dump")
+    if stage and stage not in {
+        "breakdown pressure", "coordinated unwind", "unwind active",
+        "countertrend bounce", "reversal attempt", "distribution", "late breakdown"
+    }:
+        soft_reasons.append("stage_not_allowed_for_dump")
+    if not (social_confirmed or rugpull_score >= 35 or market_confirmed or market_structure_ok):
+        soft_reasons.append("social_or_rugpull_confirmation_missing_for_dump")
+    if not (
+        source_tier in {"stacked", "triple-source", "dual-source", "single-source"} or
+        (market_confirmed and venue_count >= 1) or
+        market_structure_ok
+    ):
+        soft_reasons.append("source_stack_too_thin_for_dump")
+    if not (
+        identity_classification in {"meme", "speculative", "mixed", "unknown"} or
+        rugpull_score >= 28 or speculative_score >= 30 or market_structure_ok
+    ):
+        soft_reasons.append("asset_profile_not_suitable_for_dump")
+
+    eligible = len(hard_reasons) == 0 and (strong_override or market_structure_ok or len(soft_reasons) <= 2)
+    return {
+        "eligible": eligible,
+        "reasons": hard_reasons + ([] if eligible and (strong_override or market_structure_ok) else soft_reasons),
+    }
+
+def is_true_snapshot_signal(signal: dict, signal_type: str) -> bool:
+    return bool(evaluate_snapshot_signal_gate(signal, signal_type).get("eligible"))
+
+def is_alert_worthy_signal(signal: dict, signal_type: str) -> bool:
+    if not is_true_snapshot_signal(signal, signal_type):
+        return False
+    decision = signal.get("decision_engine") or {}
+    profile = signal.get("manipulation_profile") or {}
+    signal_strength = float(signal.get("signal_strength", 0) or 0)
+    execution_score = float(decision.get("execution_score", 0) or 0)
+    volume_ratio = float(profile.get("volume_market_cap_ratio", 0) or decision.get("volume_market_cap_ratio") or 0)
+    source_stack = signal.get("signal_sources") or signal.get("source_stack") or {}
+    source_tier = (source_stack.get("confirmation_tier") or "thin").strip().lower()
+    if signal_type == "pump":
+        return signal_strength >= 78 and execution_score >= 58 and volume_ratio >= 12 and source_tier in {"stacked", "triple-source"}
+    return signal_strength >= 72 and volume_ratio >= 10 and float(profile.get("dump_risk_score", 0) or 0) >= 70 and source_tier in {"stacked", "triple-source"}
+
+def normalize_stage_for_direction(
+    stage: Optional[str],
+    resolved_direction: str,
+    transition_state: Optional[str],
+) -> str:
+    current_stage = (stage or "").strip().lower()
+    transition = (transition_state or "").strip().lower()
+    bullish_only_stages = {"breakout active", "stealth build", "coordinated hype", "extended breakout", "pullback continuation", "reversal attempt", "blow-off risk"}
+    bearish_only_stages = {"breakdown pressure", "coordinated unwind", "unwind active", "countertrend bounce"}
+
+    if resolved_direction == "pump":
+        if transition == "bullish_pullback":
+            return "pullback continuation"
+        if transition == "bullish_reversal":
+            return "reversal attempt"
+        if current_stage in bearish_only_stages or not current_stage:
+            return "breakout active"
+        return stage or "breakout active"
+
+    if transition == "dead_cat_bounce":
+        return "countertrend bounce"
+    if current_stage in bullish_only_stages or not current_stage:
+        return "breakdown pressure"
+    return stage or "breakdown pressure"
+
 def build_fallback_signal_analysis(
     scored_candidates: List[dict],
     fear_greed: Optional[dict] = None,
@@ -1700,13 +2677,35 @@ def build_fallback_signal_analysis(
     fg = fear_greed or {"value": 50, "classification": "Neutral"}
     trending = trending or []
 
+    for candidate in scored_candidates:
+        candidate.setdefault(
+            "direction_audit",
+            build_direction_audit(
+                symbol=candidate.get("symbol", ""),
+                price_change_1h=candidate.get("price_change_1h", 0),
+                price_change_24h=candidate.get("price_change_24h", 0),
+                price_change_7d=candidate.get("price_change_7d", 0),
+                volume_24h=candidate.get("volume_24h", 0),
+                market_cap=candidate.get("market_cap", 0),
+                pump_strength=candidate.get("pump_strength", 0),
+                dump_strength=candidate.get("dump_strength", 0),
+                is_trending=bool(candidate.get("is_trending")),
+            ),
+        )
+
     pump_candidates = sorted(
-        [c for c in scored_candidates if c.get("pump_strength", 0) > 45 and c.get("price_change_1h", 0) > 0],
+        [
+            c for c in scored_candidates
+            if is_true_pump_candidate(c)
+        ],
         key=lambda x: x.get("pump_strength", 0),
         reverse=True,
     )[:8]
     dump_candidates = sorted(
-        [c for c in scored_candidates if c.get("dump_strength", 0) > 35 and c.get("price_change_1h", 0) < 0],
+        [
+            c for c in scored_candidates
+            if is_true_dump_candidate(c)
+        ],
         key=lambda x: x.get("dump_strength", 0),
         reverse=True,
     )[:4]
@@ -1728,41 +2727,74 @@ def build_fallback_signal_analysis(
     fallback_pumps = []
     for coin in pump_candidates:
         score = int(round(coin.get("pump_strength", 0)))
+        direction_audit = coin.get("direction_audit") or {}
+        source_stack = coin.get("source_stack") or {}
+        media_tail = ""
+        if coin.get("bullish_mentions", 0) or coin.get("telegram_sources", 0):
+            media_tail = (
+                f" Telegram bias is {int(coin.get('bullish_mentions', 0) or 0)} bullish vs "
+                f"{int(coin.get('bearish_mentions', 0) or 0)} bearish mentions across "
+                f"{int(coin.get('telegram_sources', 0) or 0)} source(s)."
+            )
+        source_tail = f" Source stack: {source_stack.get('summary')}" if source_stack.get("summary") else ""
         fallback_pumps.append({
             "symbol": coin["symbol"],
             "signal_strength": score,
             "reason": (
                 f"Volume/market-cap ratio at {coin.get('vol_mcap_ratio', 0)}% with 1h move "
                 f"{coin.get('price_change_1h', 0):+.2f}% and 24h move {coin.get('price_change_24h', 0):+.2f}%. "
-                f"Momentum score {coin.get('momentum_score', 0):.0f} indicates short-term acceleration."
+                f"Momentum score {coin.get('momentum_score', 0):.0f} indicates short-term acceleration. "
+                f"Resolved structure: {direction_audit.get('transition_state', 'bullish_continuation').replace('_', ' ')}."
+                f"{media_tail}{source_tail}"
             ),
             "technical_factors": "Volume anomaly, momentum acceleration, trend alignment",
             "confidence": confidence_for(score),
             "risk_level": risk_for(coin.get("price_change_1h", 0), coin.get("vol_mcap_ratio", 0)),
             "timeframe": "4-12 hours",
+            "signal_sources": source_stack,
+            "source_summary": source_stack.get("summary"),
         })
 
     fallback_dumps = []
     for coin in dump_candidates:
         score = int(round(coin.get("dump_strength", 0)))
+        direction_audit = coin.get("direction_audit") or {}
+        source_stack = coin.get("source_stack") or {}
+        media_tail = ""
+        if coin.get("bearish_mentions", 0) or coin.get("telegram_sources", 0):
+            media_tail = (
+                f" Telegram/media bias is {int(coin.get('bearish_mentions', 0) or 0)} bearish vs "
+                f"{int(coin.get('bullish_mentions', 0) or 0)} bullish mentions across "
+                f"{int(coin.get('telegram_sources', 0) or 0)} source(s)."
+            )
+        source_tail = f" Source stack: {source_stack.get('summary')}" if source_stack.get("summary") else ""
         fallback_dumps.append({
             "symbol": coin["symbol"],
             "signal_strength": score,
             "reason": (
                 f"1h decline {coin.get('price_change_1h', 0):+.2f}% against 24h move {coin.get('price_change_24h', 0):+.2f}% "
-                f"with volume/market-cap ratio {coin.get('vol_mcap_ratio', 0)}%. Selling pressure and decline acceleration remain elevated."
+                f"with volume/market-cap ratio {coin.get('vol_mcap_ratio', 0)}%. Selling pressure and decline acceleration remain elevated. "
+                f"Resolved structure: {direction_audit.get('transition_state', 'bearish_breakdown').replace('_', ' ')}."
+                f"{media_tail}{source_tail}"
             ),
             "technical_factors": "Selling pressure, decline acceleration, volume confirmation",
             "confidence": confidence_for(score),
             "risk_level": risk_for(coin.get("price_change_1h", 0), coin.get("vol_mcap_ratio", 0)),
             "timeframe": "2-8 hours",
+            "signal_sources": source_stack,
+            "source_summary": source_stack.get("summary"),
         })
 
     sentiment = fg.get("classification", "Neutral")
     trend_text = ", ".join(trending[:5]) if trending else "none"
+    stacked_count = len([
+        c for c in scored_candidates
+        if ((c.get("source_stack") or {}).get("confirmation_tier") in {"stacked", "triple-source"})
+    ])
     market_summary = (
         f"Fallback quantitative analysis active. Fear & Greed is {fg.get('value', 50)}/100 ({sentiment}). "
         f"{len(fallback_pumps)} pump candidates and {len(fallback_dumps)} dump candidates passed the scoring filters. "
+        f"{stacked_count} assets currently have stacked source confirmation from rumor flow, social breadth, and market structure. "
         f"Trending symbols: {trend_text}."
     )
 
@@ -1886,87 +2918,29 @@ async def analyze_signals_with_ai(candidates: List[dict], fear_greed: dict = Non
         # Pre-calculate scientific scores for each coin
         scored_candidates = []
         for c in candidates:
-            vol_mcap = c.get('vol_mcap_ratio', 0)
-            pc_1h = c.get('price_change_1h', 0)
-            pc_24h = c.get('price_change_24h', 0)
-            pc_7d = c.get('price_change_7d', 0)
-            is_trending = c.get('is_trending', False)
-            
-            # VOLUME ANOMALY SCORE (0-100)
-            # Normal vol/mcap is 3-8%, >15% is abnormal
-            vol_score = min(100, (vol_mcap / 20) * 100) if vol_mcap > 5 else vol_mcap * 10
-            
-            # MOMENTUM SCORE (0-100) - Positive momentum when 1h > 24h change rate
-            momentum_1h_normalized = pc_1h * 24  # Annualize 1h to compare with 24h
-            momentum_divergence = momentum_1h_normalized - pc_24h
-            momentum_score = min(100, max(0, 50 + momentum_divergence * 2))
-            
-            # TREND ALIGNMENT (0-100)
-            # Bullish: all timeframes positive and accelerating
-            trend_score = 0
-            if pc_1h > 0 and pc_24h > 0:
-                trend_score += 40
-            if pc_1h > pc_24h / 24:  # 1h rate > 24h average rate = acceleration
-                trend_score += 30
-            if is_trending:
-                trend_score += 30
-            
-            # SENTIMENT ALIGNMENT (0-100)
-            # In Fear (FG<30): contrarian buys are stronger signals
-            # In Greed (FG>70): momentum plays are stronger
-            sentiment_boost = 0
-            if fg_value < 30 and pc_1h > 0:  # Contrarian buy in fear
-                sentiment_boost = 20
-            elif fg_value > 60 and pc_1h > 2:  # Momentum in greed
-                sentiment_boost = 15
-            
-            # PUMP SIGNAL STRENGTH
-            pump_strength = (
-                vol_score * 0.30 +
-                momentum_score * 0.35 +
-                trend_score * 0.20 +
-                sentiment_boost * 0.15
-            )
-            
-            # DUMP SIGNAL ANALYSIS
-            # SELLING PRESSURE (0-100)
-            selling_pressure = 0
-            if pc_1h < 0 and pc_24h < 0:
-                selling_pressure = min(100, abs(pc_1h) * 10 + abs(pc_24h) * 2)
-            
-            # DECLINE ACCELERATION
-            decline_acceleration = 0
-            if pc_1h < 0 and pc_1h < pc_24h / 24:  # Dropping faster than 24h average
-                decline_acceleration = min(100, abs(pc_1h - pc_24h/24) * 15)
-            
-            # HIGH VOLUME DUMP (panic selling)
-            dump_vol_score = vol_score if pc_1h < -2 else 0
-            
-            dump_strength = (
-                dump_vol_score * 0.25 +
-                decline_acceleration * 0.40 +
-                selling_pressure * 0.20 +
-                (15 if fg_value > 70 else 0)  # Dumps in extreme greed are significant
-            )
+            scored = score_market_candidate(c, fg_value)
             
             scored_candidates.append({
                 **c,
-                "pump_strength": round(pump_strength, 1),
-                "dump_strength": round(dump_strength, 1),
-                "vol_score": round(vol_score, 1),
-                "momentum_score": round(momentum_score, 1),
+                **scored,
             })
         
         # Select top pump candidates (strength > 50)
         pump_candidates = sorted(
-            [c for c in scored_candidates if c["pump_strength"] > 45 and c.get("price_change_1h", 0) > 0],
+            [
+                c for c in scored_candidates
+                if is_true_pump_candidate(c)
+            ],
             key=lambda x: x["pump_strength"],
             reverse=True
         )[:15]
         
         # Select top dump candidates (strength > 40)
         dump_candidates = sorted(
-            [c for c in scored_candidates if c["dump_strength"] > 35 and c.get("price_change_1h", 0) < 0],
+            [
+                c for c in scored_candidates
+                if is_true_dump_candidate(c)
+            ],
             key=lambda x: x["dump_strength"],
             reverse=True
         )[:10]
@@ -1984,14 +2958,18 @@ Your analysis must be SPECIFIC with exact numbers and technical reasoning - no v
             f"{c['symbol']}: pump_score={c['pump_strength']}, price=${c['price']:.6f}, "
             f"vol/mcap={c['vol_mcap_ratio']:.1f}%, 1h={c['price_change_1h']:+.2f}%, "
             f"24h={c['price_change_24h']:+.2f}%, momentum={c['momentum_score']:.0f}, "
-            f"trending={'YES' if c.get('is_trending') else 'no'}"
+            f"trending={'YES' if c.get('is_trending') else 'no'}, "
+            f"tg_bull={c.get('bullish_mentions', 0)}, tg_bear={c.get('bearish_mentions', 0)}, tg_sources={c.get('telegram_sources', 0)}, "
+            f"source_tier={((c.get('source_stack') or {}).get('confirmation_tier') or 'thin')}"
             for c in pump_candidates
         ]) if pump_candidates else "No strong pump signals detected"
         
         dump_data = "\n".join([
             f"{c['symbol']}: dump_score={c['dump_strength']}, price=${c['price']:.6f}, "
             f"vol/mcap={c['vol_mcap_ratio']:.1f}%, 1h={c['price_change_1h']:+.2f}%, "
-            f"24h={c['price_change_24h']:+.2f}%"
+            f"24h={c['price_change_24h']:+.2f}%, tg_bull={c.get('bullish_mentions', 0)}, "
+            f"tg_bear={c.get('bearish_mentions', 0)}, tg_sources={c.get('telegram_sources', 0)}, "
+            f"source_tier={((c.get('source_stack') or {}).get('confirmation_tier') or 'thin')}"
             for c in dump_candidates
         ]) if dump_candidates else "No strong dump signals detected"
         
@@ -2064,175 +3042,478 @@ IMPORTANT:
             logger.error(f"AI analysis error: {e}")
         return build_fallback_signal_analysis(scored_candidates if 'scored_candidates' in locals() else [], fear_greed, trending)
 
-async def fetch_and_store_signals():
+async def fetch_and_store_signals(trigger: str = "scheduler"):
     """Main job: fetch data, analyze with AI, store results"""
+    if SIGNAL_SCAN_LOCK.locked():
+        logger.info("Skipping signal fetch job because another scan is already running")
+        return {
+            "started": False,
+            "completed": False,
+            "scan_status": build_signal_scan_status(),
+        }
+
     logger.info("Starting crypto signal fetch job...")
-    
-    try:
-        telegram_stats_map = await get_recent_telegram_signal_map(hours=24)
-        # Fetch data in parallel
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            cg_future = executor.submit(get_coingecko_markets, 100)
-            lc_future = executor.submit(get_lunarcrush_data, 50)
-            fg_future = executor.submit(get_fear_greed_index)
-            trending_future = executor.submit(get_coingecko_trending)
-            
-            cg_data = cg_future.result()
-            lc_data = lc_future.result()
-            fear_greed = fg_future.result()
-            trending_symbols = trending_future.result()
-        
-        # Build LunarCrush lookup by symbol
-        lc_lookup: Dict[str, dict] = {}
-        for coin in lc_data:
-            sym = (coin.get("symbol") or coin.get("s") or "").upper()
-            if sym:
-                lc_lookup[sym] = coin
-        
-        # Merge data - FILTER OUT INVALID COINS
-        candidates = []
-        for coin in cg_data:
-            sym = coin.get("symbol", "").upper()
-            
-            # STRICT VALIDATION - Skip coins with invalid/zero data
-            price = coin.get("current_price") or 0
-            vol = coin.get("total_volume") or 0
-            mcap = coin.get("market_cap") or 0
-            
-            # Skip if price is 0 or extremely low (likely dead/scam coins)
-            if price <= 0 or price < 0.0000001:
-                continue
-            
-            # Skip if no volume (dead coins)
-            if vol <= 0:
-                continue
-                
-            # Skip if no market cap (not a real trading coin)
-            if mcap <= 0:
-                continue
-            
-            # Skip if market cap is suspiciously low (< $100k - likely scam/meme)
-            if mcap < 100000:
-                continue
-            
-            lc = lc_lookup.get(sym, {})
-            
-            # Extract price changes
-            pc = coin.get("price_change_percentage_1h_in_currency") or coin.get("price_change_percentage_1h") or 0
-            pc24 = coin.get("price_change_percentage_24h") or 0
-            pc7d = coin.get("price_change_percentage_7d_in_currency") or coin.get("price_change_percentage_7d") or 0
-            
-            vol_mcap_ratio = (vol / mcap * 100) if mcap > 0 else 0
-            
-            candidates.append({
-                "id": coin.get("id", ""),
-                "symbol": sym,
-                "name": coin.get("name", ""),
-                "price": price,
-                "market_cap": mcap,
-                "volume_24h": vol,
-                "vol_mcap_ratio": round(vol_mcap_ratio, 2),
-                "price_change_1h": round(float(pc), 2) if pc else 0,
-                "price_change_24h": round(float(pc24), 2) if pc24 else 0,
-                "price_change_7d": round(float(pc7d), 2) if pc7d else 0,
-                "image": coin.get("image"),
-                "is_trending": sym in trending_symbols,
-                # LunarCrush data (0 if not available)
-                "social_volume": lc.get("social_volume") or lc.get("sv") or 0,
-                "sentiment": lc.get("sentiment") or lc.get("ss") or 0,
-                "galaxy_score": lc.get("galaxy_score") or lc.get("gs") or 0,
-            })
-        
-        logger.info(f"Filtered to {len(candidates)} valid coins from {len(cg_data)} total")
-        
-        # AI Analysis with all available data
-        ai_result = await analyze_signals_with_ai(candidates, fear_greed, trending_symbols)
-        
-        # Enrich signals with market data
-        cg_lookup = {c["symbol"].upper(): c for c in candidates}
-        
-        def enrich_signal(sig: dict, signal_type: str) -> dict:
-            sym = sig.get("symbol", "").upper()
-            market = cg_lookup.get(sym, {})
-            
-            # Skip if no market data found (AI hallucinated a coin)
-            if not market:
-                return None
-            
-            # Skip if price is 0 or invalid
-            price = market.get("price") or 0
-            if price <= 0:
-                return None
-            venues = build_market_venues(sym, market.get("id", ""))
-            decision_engine = build_signal_execution_plan(
-                signal_type=signal_type,
-                symbol=sym,
-                price=price,
-                price_change_1h=market.get("price_change_1h") or 0,
-                price_change_24h=market.get("price_change_24h") or 0,
-                price_change_7d=market.get("price_change_7d") or 0,
-                volume_24h=market.get("volume_24h") or 0,
-                market_cap=market.get("market_cap") or 0,
-                signal_strength=sig.get("signal_strength", 0),
-                confidence=sig.get("confidence", "medium"),
-                risk_level=sig.get("risk_level", "medium"),
-                venues=venues,
+    async with SIGNAL_SCAN_LOCK:
+        started_at = datetime.now(timezone.utc)
+        SIGNAL_SCAN_STATE.update({
+            "running": True,
+            "trigger": trigger,
+            "started_at": started_at,
+            "finished_at": None,
+            "last_error": None,
+        })
+        job_result = {
+            "started": True,
+            "completed": False,
+            "pump_count": 0,
+            "dump_count": 0,
+            "coins_analyzed": 0,
+            "snapshot_at": None,
+        }
+
+        try:
+            telegram_stats_map = await get_recent_telegram_signal_map(hours=24)
+
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                cg_future = executor.submit(get_coingecko_markets, 250, 2)
+                lc_future = executor.submit(get_lunarcrush_data, 50)
+                fg_future = executor.submit(get_fear_greed_index)
+                trending_future = executor.submit(get_coingecko_trending)
+
+                cg_data = cg_future.result()
+                lc_data = lc_future.result()
+                fear_greed = fg_future.result()
+                trending_symbols = trending_future.result()
+
+            lc_lookup: Dict[str, dict] = {}
+            for coin in lc_data:
+                sym = (coin.get("symbol") or coin.get("s") or "").upper()
+                if sym:
+                    lc_lookup[sym] = coin
+
+            recent_telegram_cutoff = datetime.now(timezone.utc) - timedelta(hours=TELEGRAM_EARLY_SIGNAL_HOURS)
+            recent_telegram_signals = await db.telegram_signals.find({
+                "posted_at": {"$gte": recent_telegram_cutoff},
+                "symbol": {"$exists": True, "$ne": None},
+            }).sort("posted_at", -1).limit(400).to_list(length=400)
+            telegram_early_signals = build_telegram_early_signal_candidates(
+                recent_telegram_signals,
+                hours=TELEGRAM_EARLY_SIGNAL_HOURS,
+                limit=TELEGRAM_EARLY_SIGNAL_LIMIT,
             )
-            manipulation_profile = build_manipulation_profile(
-                signal_type=signal_type,
-                symbol=sym,
-                price_change_1h=market.get("price_change_1h") or 0,
-                price_change_24h=market.get("price_change_24h") or 0,
-                price_change_7d=market.get("price_change_7d") or 0,
-                volume_24h=market.get("volume_24h") or 0,
-                market_cap=market.get("market_cap") or 0,
-                signal_strength=sig.get("signal_strength", 0),
-                risk_level=sig.get("risk_level", "medium"),
-                is_trending=market.get("is_trending", False),
-                social_volume=market.get("social_volume") or 0,
-                sentiment=market.get("sentiment") or 0,
-                galaxy_score=market.get("galaxy_score") or 0,
-                decision_engine=decision_engine,
-                telegram_stats=telegram_stats_map.get(sym),
-            )
-            manipulation_timeline = build_manipulation_timeline(
-                symbol=sym,
-                signal_type=signal_type,
-                manipulation_profile=manipulation_profile,
-                decision_engine=decision_engine,
-                fear_greed=fear_greed,
-                is_trending=market.get("is_trending", False),
-                social_volume=market.get("social_volume") or 0,
-                galaxy_score=market.get("galaxy_score") or 0,
-            )
-                
-            return {
-                **sig,
-                "signal_type": signal_type,
-                "symbol": sym,
-                "name": market.get("name", sym),
-                "price": price,
-                "price_change_1h": market.get("price_change_1h"),
-                "price_change_24h": market.get("price_change_24h"),
-                "volume_24h": market.get("volume_24h"),
-                "social_volume": market.get("social_volume"),
-                "sentiment": market.get("sentiment"),
-                "galaxy_score": market.get("galaxy_score"),
-                "image": market.get("image"),
-                "is_trending": market.get("is_trending", False),
-                "decision_engine": decision_engine,
-                "preferred_venue": decision_engine.get("preferred_venue"),
-                "manipulation_profile": manipulation_profile,
-                "manipulation_timeline": manipulation_timeline,
-                "timestamp": datetime.now(timezone.utc),
-            }
-        
-        # Filter out None (invalid signals)
-        pump_signals = [s for s in [enrich_signal(s, "pump") for s in ai_result.get("pump_signals", [])] if s is not None]
-        dump_signals = [s for s in [enrich_signal(s, "dump") for s in ai_result.get("dump_signals", [])] if s is not None]
-        
-        if pump_signals or dump_signals:
+            telegram_pipeline_records: List[dict] = []
+
+            candidates = []
+            candidate_lookup: Dict[str, dict] = {}
+            for coin in cg_data:
+                candidate = build_market_candidate_record(
+                    coin,
+                    lc_lookup=lc_lookup,
+                    telegram_stats_map=telegram_stats_map,
+                    trending_symbols=trending_symbols,
+                    origin="coingecko_scan",
+                )
+                reject_reasons = explain_market_candidate_rejection(
+                    price=candidate.get("price", 0) or 0,
+                    volume_24h=candidate.get("volume_24h", 0) or 0,
+                    market_cap=candidate.get("market_cap", 0) or 0,
+                    vol_mcap_ratio=candidate.get("vol_mcap_ratio", 0) or 0,
+                    is_trending=bool(candidate.get("is_trending")),
+                    social_volume=candidate.get("social_volume", 0) or 0,
+                    galaxy_score=candidate.get("galaxy_score", 0) or 0,
+                    telegram_mentions=candidate.get("telegram_mentions", 0) or 0,
+                    telegram_sources=candidate.get("telegram_sources", 0) or 0,
+                    bullish_mentions=candidate.get("bullish_mentions", 0) or 0,
+                    bearish_mentions=candidate.get("bearish_mentions", 0) or 0,
+                )
+                if reject_reasons:
+                    if (candidate.get("telegram_mentions", 0) or 0) > 0 or (candidate.get("telegram_sources", 0) or 0) > 0:
+                        telegram_pipeline_records.append({
+                            "symbol": candidate.get("symbol"),
+                            "stage": "candidate_gate",
+                            "reasons": reject_reasons,
+                            "candidate_origin": candidate.get("candidate_origin"),
+                            "telegram_mentions": candidate.get("telegram_mentions", 0),
+                            "telegram_sources": candidate.get("telegram_sources", 0),
+                            "avg_score": candidate.get("telegram_avg_score", 0),
+                        })
+                    continue
+                candidates.append(candidate)
+                candidate_lookup[candidate["symbol"]] = candidate
+
+            promoted_telegram_symbols: List[str] = []
+            for early_signal in telegram_early_signals:
+                symbol = (early_signal.get("symbol") or "").upper()
+                if not symbol:
+                    continue
+                if symbol in candidate_lookup:
+                    candidate_lookup[symbol]["candidate_origin"] = "coingecko_scan+telegram_heat"
+                    candidate_lookup[symbol]["telegram_early_seed"] = early_signal
+                    promoted_telegram_symbols.append(symbol)
+                    telegram_pipeline_records.append({
+                        "symbol": symbol,
+                        "stage": "telegram_seed_attached",
+                        "reasons": ["existing_market_candidate_gained_telegram_confirmation"],
+                        "candidate_origin": candidate_lookup[symbol].get("candidate_origin"),
+                        "telegram_mentions": early_signal.get("mentions", 0),
+                        "telegram_sources": early_signal.get("unique_sources", 0),
+                        "avg_score": early_signal.get("avg_score", 0),
+                    })
+                    continue
+                if not early_signal.get("candidate_ready"):
+                    telegram_pipeline_records.append({
+                        "symbol": symbol,
+                        "stage": "telegram_seed_gate",
+                        "reasons": ["insufficient_cross_source_confirmation"],
+                        "candidate_origin": "telegram_early",
+                        "telegram_mentions": early_signal.get("mentions", 0),
+                        "telegram_sources": early_signal.get("unique_sources", 0),
+                        "avg_score": early_signal.get("avg_score", 0),
+                    })
+                    continue
+
+                market_row = await asyncio.to_thread(
+                    get_coingecko_market_snapshot,
+                    symbol,
+                    early_signal.get("coin_name"),
+                    early_signal.get("coin_id"),
+                )
+                if not market_row:
+                    telegram_pipeline_records.append({
+                        "symbol": symbol,
+                        "stage": "market_data_lookup",
+                        "reasons": ["missing_market_data_for_telegram_seed"],
+                        "candidate_origin": "telegram_early",
+                        "telegram_mentions": early_signal.get("mentions", 0),
+                        "telegram_sources": early_signal.get("unique_sources", 0),
+                        "avg_score": early_signal.get("avg_score", 0),
+                    })
+                    continue
+
+                candidate = build_market_candidate_record(
+                    market_row,
+                    lc_lookup=lc_lookup,
+                    telegram_stats_map=telegram_stats_map,
+                    trending_symbols=trending_symbols,
+                    origin="telegram_early",
+                    telegram_seed=early_signal,
+                )
+                reject_reasons = explain_market_candidate_rejection(
+                    price=candidate.get("price", 0) or 0,
+                    volume_24h=candidate.get("volume_24h", 0) or 0,
+                    market_cap=candidate.get("market_cap", 0) or 0,
+                    vol_mcap_ratio=candidate.get("vol_mcap_ratio", 0) or 0,
+                    is_trending=bool(candidate.get("is_trending")),
+                    social_volume=candidate.get("social_volume", 0) or 0,
+                    galaxy_score=candidate.get("galaxy_score", 0) or 0,
+                    telegram_mentions=candidate.get("telegram_mentions", 0) or 0,
+                    telegram_sources=candidate.get("telegram_sources", 0) or 0,
+                    bullish_mentions=candidate.get("bullish_mentions", 0) or 0,
+                    bearish_mentions=candidate.get("bearish_mentions", 0) or 0,
+                )
+                hard_reject_reasons = [reason for reason in reject_reasons if reason != "insufficient_market_social_or_telegram_activity"]
+                if hard_reject_reasons:
+                    telegram_pipeline_records.append({
+                        "symbol": symbol,
+                        "stage": "telegram_candidate_gate",
+                        "reasons": hard_reject_reasons,
+                        "candidate_origin": "telegram_early",
+                        "telegram_mentions": early_signal.get("mentions", 0),
+                        "telegram_sources": early_signal.get("unique_sources", 0),
+                        "avg_score": early_signal.get("avg_score", 0),
+                    })
+                    continue
+
+                candidate["candidate_gate_override_reason"] = "telegram_cross_source_seed"
+                candidate["telegram_early_seed"] = early_signal
+                candidates.append(candidate)
+                candidate_lookup[symbol] = candidate
+                promoted_telegram_symbols.append(symbol)
+                telegram_pipeline_records.append({
+                    "symbol": symbol,
+                    "stage": "telegram_promoted_candidate",
+                    "reasons": ["cross_source_telegram_seed_promoted_into_ai_pipeline"],
+                    "candidate_origin": "telegram_early",
+                    "telegram_mentions": early_signal.get("mentions", 0),
+                    "telegram_sources": early_signal.get("unique_sources", 0),
+                    "avg_score": early_signal.get("avg_score", 0),
+                })
+
+            logger.info(f"Filtered to {len(candidates)} valid coins from {len(cg_data)} total (%s telegram-promoted)", len(promoted_telegram_symbols))
+            ai_result = await analyze_signals_with_ai(candidates, fear_greed, trending_symbols)
+            cg_lookup = {c["symbol"].upper(): c for c in candidates}
+
+            def enrich_signal(sig: dict, signal_type: str) -> dict:
+                sym = sig.get("symbol", "").upper()
+                market = cg_lookup.get(sym, {})
+                if not market:
+                    return None
+
+                price = market.get("price") or 0
+                if price <= 0:
+                    return None
+
+                direction_audit = build_direction_audit(
+                    symbol=sym,
+                    price_change_1h=market.get("price_change_1h") or 0,
+                    price_change_24h=market.get("price_change_24h") or 0,
+                    price_change_7d=market.get("price_change_7d") or 0,
+                    volume_24h=market.get("volume_24h") or 0,
+                    market_cap=market.get("market_cap") or 0,
+                    signal_type_hint=signal_type,
+                    signal_strength_hint=sig.get("signal_strength", 0),
+                    pump_strength=sig.get("signal_strength", 0) if signal_type == "pump" else market.get("pump_strength", 0),
+                    dump_strength=sig.get("signal_strength", 0) if signal_type == "dump" else market.get("dump_strength", 0),
+                    is_trending=market.get("is_trending", False),
+                )
+                resolved_signal_type = direction_audit.get("resolved_direction", signal_type)
+                if resolved_signal_type != signal_type:
+                    logger.info(
+                        "Direction audit rerouted %s from %s to %s (1h=%+.2f 24h=%+.2f 7d=%+.2f gap=%.2f transition=%s)",
+                        sym,
+                        signal_type,
+                        resolved_signal_type,
+                        direction_audit.get("price_change_1h", 0.0),
+                        direction_audit.get("price_change_24h", 0.0),
+                        direction_audit.get("price_change_7d", 0.0),
+                        direction_audit.get("score_gap", 0.0),
+                        direction_audit.get("transition_state", "unknown"),
+                    )
+
+                market_details = get_coin_extended_details(market.get("id", ""))
+                market_platform, market_contract = pick_primary_contract(market_details)
+                venues = build_market_venues(sym, market.get("id", ""), market_platform, market_contract)
+                asset_identity = build_asset_identity_profile(
+                    symbol=sym,
+                    coin_id=market.get("id", ""),
+                    name=market.get("name", sym),
+                    market_cap=market.get("market_cap") or 0,
+                    details=market_details,
+                    venues=venues,
+                )
+                tokenomics = build_tokenomics_profile(market_details) if market_details else {
+                    "circulating_supply": None,
+                    "total_supply": None,
+                    "max_supply": None,
+                    "fdv_usd": None,
+                    "market_cap_usd": market.get("market_cap") or 0,
+                    "circulating_ratio_pct": None,
+                    "dilution_gap_pct": None,
+                    "unlock_risk": "Unknown",
+                    "warnings": [],
+                    "source": "CoinGecko",
+                }
+                decision_engine = build_signal_execution_plan(
+                    signal_type=resolved_signal_type,
+                    symbol=sym,
+                    price=price,
+                    price_change_1h=market.get("price_change_1h") or 0,
+                    price_change_24h=market.get("price_change_24h") or 0,
+                    price_change_7d=market.get("price_change_7d") or 0,
+                    volume_24h=market.get("volume_24h") or 0,
+                    market_cap=market.get("market_cap") or 0,
+                    signal_strength=sig.get("signal_strength", 0),
+                    confidence=sig.get("confidence", "medium"),
+                    risk_level=sig.get("risk_level", "medium"),
+                    venues=venues,
+                    direction_audit=direction_audit,
+                )
+                source_stack = build_signal_source_stack(
+                    symbol=sym,
+                    price_change_1h=market.get("price_change_1h") or 0,
+                    price_change_24h=market.get("price_change_24h") or 0,
+                    vol_mcap_ratio=market.get("vol_mcap_ratio") or 0,
+                    is_trending=market.get("is_trending", False),
+                    telegram_mentions=market.get("telegram_mentions", 0) or 0,
+                    telegram_sources=market.get("telegram_sources", 0) or 0,
+                    bullish_mentions=market.get("bullish_mentions", 0) or 0,
+                    bearish_mentions=market.get("bearish_mentions", 0) or 0,
+                    telegram_avg_score=market.get("telegram_avg_score", 0) or 0,
+                    social_volume=market.get("social_volume") or 0,
+                    galaxy_score=market.get("galaxy_score") or 0,
+                    sentiment=market.get("sentiment") or 0,
+                    lunar_mentions=market.get("lunar_mentions", 0) or 0,
+                    lunar_creators=market.get("lunar_creators", 0) or 0,
+                    lunar_interactions=market.get("lunar_interactions", 0) or 0,
+                    lunar_dominance=market.get("lunar_dominance", 0) or 0,
+                    venue_count=decision_engine.get("venue_count", 0) or len(venues),
+                    preferred_venue=decision_engine.get("preferred_venue"),
+                )
+
+                holder_distribution = {"available": False}
+                goplus_security = {"available": False}
+                goplus_rugpull = {"available": False}
+                wallet_cluster_intelligence = {
+                    "available": False,
+                    "cluster_risk_score": None,
+                    "combined_insider_pct": None,
+                    "top_10_pct": None,
+                    "long_tail_pct": None,
+                    "warnings": [],
+                    "summary": "No verified wallet clustering data yet.",
+                }
+                contract_risk = {
+                    "available": False,
+                    "risk_score": None,
+                    "risk_level": None,
+                    "warnings": [],
+                    "source": "GoPlus",
+                }
+                if market_contract:
+                    holder_distribution = get_holder_distribution(market_platform, market_contract)
+                    goplus_security = get_goplus_security(market_platform, market_contract)
+                    goplus_rugpull = get_goplus_rugpull(market_platform, market_contract)
+                    wallet_cluster_intelligence = build_wallet_cluster_intelligence(holder_distribution, goplus_security)
+                    contract_risk = build_contract_risk_profile(market_platform, market_contract, goplus_security, goplus_rugpull)
+
+                manipulation_profile = build_manipulation_profile(
+                    signal_type=resolved_signal_type,
+                    symbol=sym,
+                    price_change_1h=market.get("price_change_1h") or 0,
+                    price_change_24h=market.get("price_change_24h") or 0,
+                    price_change_7d=market.get("price_change_7d") or 0,
+                    volume_24h=market.get("volume_24h") or 0,
+                    market_cap=market.get("market_cap") or 0,
+                    signal_strength=sig.get("signal_strength", 0),
+                    risk_level=sig.get("risk_level", "medium"),
+                    is_trending=market.get("is_trending", False),
+                    social_volume=market.get("social_volume") or 0,
+                    sentiment=market.get("sentiment") or 0,
+                    galaxy_score=market.get("galaxy_score") or 0,
+                    decision_engine=decision_engine,
+                    telegram_stats=telegram_stats_map.get(sym),
+                    direction_audit=direction_audit,
+                )
+                rugpull_profile = build_rugpull_profile(
+                    asset_identity=asset_identity,
+                    tokenomics=tokenomics,
+                    wallet_cluster_intelligence=wallet_cluster_intelligence,
+                    contract_risk=contract_risk,
+                    venues=venues,
+                    manipulation_profile=manipulation_profile,
+                )
+                manipulation_timeline = build_manipulation_timeline(
+                    symbol=sym,
+                    signal_type=resolved_signal_type,
+                    manipulation_profile=manipulation_profile,
+                    decision_engine=decision_engine,
+                    fear_greed=fear_greed,
+                    is_trending=market.get("is_trending", False),
+                    social_volume=market.get("social_volume") or 0,
+                    galaxy_score=market.get("galaxy_score") or 0,
+                )
+
+                return {
+                    **sig,
+                    "signal_type": resolved_signal_type,
+                    "requested_signal_type": signal_type,
+                    "candidate_origin": market.get("candidate_origin", "coingecko_scan"),
+                    "candidate_gate_override_reason": market.get("candidate_gate_override_reason"),
+                    "telegram_early_seed": market.get("telegram_early_seed"),
+                    "symbol": sym,
+                    "name": market.get("name", sym),
+                    "id": market.get("id"),
+                    "price": price,
+                    "price_change_1h": market.get("price_change_1h"),
+                    "price_change_24h": market.get("price_change_24h"),
+                    "price_change_7d": market.get("price_change_7d"),
+                    "volume_24h": market.get("volume_24h"),
+                    "market_cap": market.get("market_cap"),
+                    "social_volume": market.get("social_volume"),
+                    "sentiment": market.get("sentiment"),
+                    "galaxy_score": market.get("galaxy_score"),
+                    "image": market.get("image"),
+                    "is_trending": market.get("is_trending", False),
+                    "direction_audit": direction_audit,
+                    "decision_engine": decision_engine,
+                    "preferred_venue": decision_engine.get("preferred_venue"),
+                    "signal_sources": source_stack,
+                    "source_summary": source_stack.get("summary"),
+                    "asset_identity": asset_identity,
+                    "rugpull_profile": rugpull_profile,
+                    "manipulation_profile": manipulation_profile,
+                    "manipulation_timeline": manipulation_timeline,
+                    "timestamp": datetime.now(timezone.utc),
+                }
+
+            all_enriched_signals = [
+                s for s in (
+                    [enrich_signal(s, "pump") for s in ai_result.get("pump_signals", [])] +
+                    [enrich_signal(s, "dump") for s in ai_result.get("dump_signals", [])]
+                ) if s is not None
+            ]
+            deduped_signals: Dict[str, dict] = {}
+            for enriched_signal in all_enriched_signals:
+                symbol_key = enriched_signal.get("symbol", "").upper()
+                if not symbol_key:
+                    continue
+                existing = deduped_signals.get(symbol_key)
+                if not existing:
+                    deduped_signals[symbol_key] = enriched_signal
+                    continue
+                current_rank = (
+                    float(existing.get("signal_strength", 0) or 0),
+                    float((existing.get("direction_audit") or {}).get("score_gap", 0) or 0),
+                    abs(float(existing.get("price_change_24h", 0) or 0)),
+                )
+                candidate_rank = (
+                    float(enriched_signal.get("signal_strength", 0) or 0),
+                    float((enriched_signal.get("direction_audit") or {}).get("score_gap", 0) or 0),
+                    abs(float(enriched_signal.get("price_change_24h", 0) or 0)),
+                )
+                if candidate_rank > current_rank:
+                    deduped_signals[symbol_key] = enriched_signal
+
+            gated_pump_signals: List[dict] = []
+            gated_dump_signals: List[dict] = []
+            for enriched_signal in deduped_signals.values():
+                resolved_signal_type = enriched_signal.get("signal_type")
+                if resolved_signal_type not in {"pump", "dump"}:
+                    continue
+                gate = evaluate_snapshot_signal_gate(enriched_signal, resolved_signal_type)
+                enriched_signal["snapshot_gate"] = gate
+                if gate.get("eligible"):
+                    if resolved_signal_type == "pump":
+                        gated_pump_signals.append(enriched_signal)
+                    else:
+                        gated_dump_signals.append(enriched_signal)
+                    continue
+                manipulation_profile = enriched_signal.get("manipulation_profile") or {}
+                if (
+                    enriched_signal.get("candidate_origin") == "telegram_early" or
+                    int(manipulation_profile.get("telegram_mentions") or 0) > 0 or
+                    int(manipulation_profile.get("telegram_sources") or 0) > 0
+                ):
+                    telegram_pipeline_records.append({
+                        "symbol": enriched_signal.get("symbol"),
+                        "stage": "snapshot_gate",
+                        "reasons": gate.get("reasons", []),
+                        "candidate_origin": enriched_signal.get("candidate_origin"),
+                        "signal_type": resolved_signal_type,
+                        "signal_strength": enriched_signal.get("signal_strength", 0),
+                        "telegram_mentions": manipulation_profile.get("telegram_mentions", 0),
+                        "telegram_sources": manipulation_profile.get("telegram_sources", 0),
+                        "avg_score": ((enriched_signal.get("telegram_early_seed") or {}).get("avg_score") or 0),
+                    })
+
+            pump_signals = sorted(
+                gated_pump_signals,
+                key=lambda item: (
+                    item.get("signal_strength", 0),
+                    (item.get("direction_audit") or {}).get("score_gap", 0),
+                ),
+                reverse=True,
+            )[:8]
+            dump_signals = sorted(
+                gated_dump_signals,
+                key=lambda item: (
+                    item.get("signal_strength", 0),
+                    (item.get("direction_audit") or {}).get("score_gap", 0),
+                ),
+                reverse=True,
+            )[:4]
+
             telegram_payload = api_ok(build_telegram_consensus_payload([], [], 24))
             try:
                 dashboard_sources = []
@@ -2253,35 +3534,93 @@ async def fetch_and_store_signals():
             except Exception as e:
                 logger.warning(f"Precompute telegram consensus failed: {e}")
 
+            snapshot_at = datetime.now(timezone.utc)
+            stage_counts: Dict[str, int] = {}
+            for record in telegram_pipeline_records:
+                stage_name = record.get("stage") or "unknown"
+                stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
+
             snapshot = {
-                "timestamp": datetime.now(timezone.utc),
+                "timestamp": snapshot_at,
                 "pump_signals": pump_signals,
                 "dump_signals": dump_signals,
+                "telegram_early_signals": telegram_early_signals,
+                "telegram_pipeline_audit": {
+                    "window_hours": TELEGRAM_EARLY_SIGNAL_HOURS,
+                    "early_signal_count": len(telegram_early_signals),
+                    "promotion_count": len(promoted_telegram_symbols),
+                    "promoted_symbols": promoted_telegram_symbols[:12],
+                    "stage_counts": stage_counts,
+                    "records": telegram_pipeline_records[:40],
+                },
                 "market_summary": ai_result.get("market_summary", ""),
                 "coins_analyzed": len(candidates),
                 "fear_greed": fear_greed,
                 "trending": trending_symbols[:10],
+                "source_pipeline": {
+                    "telegram_enabled": True,
+                    "lunarcrush_enabled": bool(lc_data),
+                    "coingecko_enabled": bool(cg_data),
+                    "x_enabled": bool(X_BEARER_TOKEN and not looks_like_placeholder(X_BEARER_TOKEN, "X_BEARER_TOKEN")),
+                },
             }
             telegram_data = telegram_payload.get("data") if isinstance(telegram_payload, dict) else None
             snapshot["telegram_consensus_precomputed"] = telegram_data
             snapshot["cross_platform_consensus_precomputed"] = build_dashboard_cross_platform_consensus(snapshot, telegram_data)
             snapshot["fresh_manipulation_alerts_precomputed"] = build_intelligence_alerts(snapshot, telegram_data)
             await db.signal_snapshots.insert_one(snapshot)
-            
-            # Send email alerts for strong signals
-            asyncio.create_task(check_and_send_alerts(pump_signals, dump_signals))
-            
-            # Keep only last 48 snapshots
+            await persist_telegram_pipeline_audit(telegram_pipeline_records, snapshot_at, trigger)
+            calibration_summary = await build_telegram_calibration_summary(72)
+            snapshot["telegram_calibration_summary"] = calibration_summary
+            await db.signal_snapshots.update_one(
+                {"timestamp": snapshot_at},
+                {"$set": {"telegram_calibration_summary": calibration_summary}},
+            )
+
+            job_result.update({
+                "completed": True,
+                "pump_count": len(pump_signals),
+                "dump_count": len(dump_signals),
+                "coins_analyzed": len(candidates),
+                "snapshot_at": snapshot.get("timestamp"),
+            })
+
+            if pump_signals or dump_signals:
+                asyncio.create_task(check_and_send_alerts(pump_signals, dump_signals))
+
             count = await db.signal_snapshots.count_documents({})
             if count > 48:
                 oldest = await db.signal_snapshots.find({}).sort("timestamp", 1).limit(count - 48).to_list(length=100)
                 old_ids = [d["_id"] for d in oldest]
                 await db.signal_snapshots.delete_many({"_id": {"$in": old_ids}})
-        
-        logger.info(f"Signal job complete: {len(pump_signals)} pump, {len(dump_signals)} dump signals")
-        
-    except Exception as e:
-        logger.exception(f"Signal fetch job error: {e}")
+
+            logger.info(f"Signal job complete: {len(pump_signals)} pump, {len(dump_signals)} dump signals")
+            return {
+                **job_result,
+                "scan_status": build_signal_scan_status(),
+            }
+        except Exception as e:
+            SIGNAL_SCAN_STATE["last_error"] = str(e)
+            logger.exception(f"Signal fetch job error: {e}")
+            return {
+                **job_result,
+                "completed": False,
+                "error": str(e),
+                "scan_status": build_signal_scan_status(),
+            }
+        finally:
+            finished_at = datetime.now(timezone.utc)
+            SIGNAL_SCAN_STATE.update({
+                "running": False,
+                "finished_at": finished_at,
+                "last_snapshot_at": job_result.get("snapshot_at"),
+                "last_result": {
+                    "pump_count": job_result.get("pump_count", 0),
+                    "dump_count": job_result.get("dump_count", 0),
+                    "coins_analyzed": job_result.get("coins_analyzed", 0),
+                    "completed": bool(job_result.get("completed")),
+                },
+            })
 
 # ─────────────────────────────────────────────
 # CRYPTO SIGNAL ENDPOINTS
@@ -2292,6 +3631,128 @@ def serialize_signal(s: dict) -> dict:
     if isinstance(s.get("timestamp"), datetime):
         s["timestamp"] = s["timestamp"].isoformat()
     return s
+
+async def build_dashboard_new_algorithm_signals(snapshot: Optional[dict], limit: int = 6) -> List[dict]:
+    if not snapshot:
+        return []
+
+    snapshot_ts = snapshot.get("timestamp")
+    snapshot_key = snapshot_ts.isoformat() if isinstance(snapshot_ts, datetime) else str(snapshot_ts)
+    cache_key = f"new_algorithm::{snapshot_key}"
+    cached_rows = get_memory_cache(NEW_ALGORITHM_SIGNALS_CACHE, cache_key, ttl_seconds=300)
+    if cached_rows is not None:
+        return cached_rows
+
+    candidates: List[dict] = []
+
+    for signal in (snapshot.get("pump_signals", []) or [])[:3]:
+        candidates.append({
+            "source": "pump_signal",
+            "signal_type": "pump",
+            "symbol": (signal.get("symbol") or "").upper(),
+            "name": signal.get("name") or signal.get("symbol"),
+            "coin_id": signal.get("id"),
+        })
+
+    for signal in (snapshot.get("dump_signals", []) or [])[:3]:
+        candidates.append({
+            "source": "dump_signal",
+            "signal_type": "dump",
+            "symbol": (signal.get("symbol") or "").upper(),
+            "name": signal.get("name") or signal.get("symbol"),
+            "coin_id": signal.get("id"),
+        })
+
+    for signal in (snapshot.get("telegram_early_signals", []) or [])[:4]:
+        candidates.append({
+            "source": "telegram_early",
+            "signal_type": signal.get("direction") or "pump",
+            "symbol": (signal.get("symbol") or "").upper(),
+            "name": signal.get("coin_name") or signal.get("symbol"),
+            "coin_id": signal.get("coin_id"),
+        })
+
+    deduped_candidates: List[dict] = []
+    seen_candidates: set[str] = set()
+    for candidate in candidates:
+        dedupe_key = f"{candidate.get('coin_id') or ''}::{candidate.get('symbol') or ''}"
+        if dedupe_key in seen_candidates:
+            continue
+        seen_candidates.add(dedupe_key)
+        deduped_candidates.append(candidate)
+
+    async def analyze_candidate(candidate: dict) -> Optional[dict]:
+        symbol = candidate.get("symbol") or ""
+        coin_id = candidate.get("coin_id")
+        name = candidate.get("name")
+
+        if not coin_id and symbol:
+            coin_id = await asyncio.to_thread(resolve_coingecko_coin_id, symbol, name)
+        if not coin_id:
+            return None
+
+        details = await asyncio.to_thread(get_coin_extended_details, coin_id)
+        platform_id, contract_address = pick_primary_contract(details)
+        if not platform_id or not contract_address:
+            return None
+
+        pump_engine_payload = await build_coin_pump_engine_payload(platform_id, contract_address)
+        analysis = pump_engine_payload.get("analysis") if pump_engine_payload.get("available") else None
+        if not analysis:
+            return None
+
+        return {
+            "symbol": symbol,
+            "name": name or symbol,
+            "source": candidate.get("source"),
+            "signal_type": candidate.get("signal_type"),
+            "platform_id": platform_id,
+            "contract_address": contract_address,
+            "analysis": analysis,
+        }
+
+    tasks = [analyze_candidate(candidate) for candidate in deduped_candidates[:limit]]
+    rows = [row for row in await asyncio.gather(*tasks) if row]
+
+    filtered_rows = []
+    for row in rows:
+        analysis = row.get("analysis") or {}
+        final_block = analysis.get("final") or {}
+        ai_block = analysis.get("ai_judge") or {}
+        rule_block = analysis.get("rule_engine") or {}
+
+        final_verdict = (
+            final_block.get("verdict")
+            or ai_block.get("final_verdict")
+            or rule_block.get("verdict")
+            or ""
+        )
+        final_action = (
+            final_block.get("action")
+            or ai_block.get("final_action")
+            or rule_block.get("action")
+            or ""
+        )
+        final_score = (
+            final_block.get("confidence")
+            or ai_block.get("confidence")
+            or rule_block.get("score")
+            or 0
+        )
+
+        verdict_text = str(final_verdict).strip().lower()
+        action_text = str(final_action).strip().upper()
+
+        if verdict_text == "noise":
+            continue
+        if action_text == "WATCH" and verdict_text in {"likely_noise", "coordinated_noise"}:
+            continue
+
+        row["_display_score"] = float(final_score or 0)
+        filtered_rows.append(row)
+
+    filtered_rows.sort(key=lambda item: float(item.get("_display_score", 0) or 0), reverse=True)
+    return set_memory_cache(NEW_ALGORITHM_SIGNALS_CACHE, cache_key, filtered_rows[:limit])
 
 @app.get("/api/crypto/signals")
 async def get_signals(user=Depends(get_optional_user)):
@@ -2304,6 +3765,10 @@ async def get_signals(user=Depends(get_optional_user)):
         return api_ok({
             "pump_signals": [],
             "dump_signals": [],
+            "telegram_early_signals": [],
+            "telegram_pipeline_audit": {"window_hours": TELEGRAM_EARLY_SIGNAL_HOURS, "early_signal_count": 0, "promotion_count": 0, "promoted_symbols": [], "stage_counts": {}, "records": []},
+            "telegram_calibration_summary": None,
+            "new_algorithm_signals": [],
             "market_summary": "Signals are being processed. Please check back in a few minutes.",
             "last_updated": None,
             "coins_analyzed": 0,
@@ -2355,7 +3820,10 @@ async def get_signals(user=Depends(get_optional_user)):
     cache_key = f"{snapshot_key}::{int(has_access)}"
     cached_payload = get_memory_cache(DASHBOARD_PAYLOAD_CACHE, cache_key, ttl_seconds=90)
     if cached_payload is not None:
-        return api_ok(cached_payload)
+        return api_ok({
+            **cached_payload,
+            "scan_status": build_signal_scan_status(),
+        })
 
     pump = [serialize_signal(dict(s)) for s in snapshot.get("pump_signals", [])]
     dump = [serialize_signal(dict(s)) for s in snapshot.get("dump_signals", [])]
@@ -2371,10 +3839,18 @@ async def get_signals(user=Depends(get_optional_user)):
         cross_platform_consensus = build_dashboard_cross_platform_consensus(snapshot, telegram_data)
     if fresh_manipulation_alerts is None:
         fresh_manipulation_alerts = build_intelligence_alerts(snapshot, telegram_data)
+    telegram_calibration_summary = snapshot.get("telegram_calibration_summary")
+    if telegram_calibration_summary is None and has_access:
+        telegram_calibration_summary = await build_telegram_calibration_summary(72)
+    new_algorithm_signals = await build_dashboard_new_algorithm_signals(snapshot)
     
     payload = {
         "pump_signals": pump,
         "dump_signals": dump,
+        "telegram_early_signals": snapshot.get("telegram_early_signals", []),
+        "telegram_pipeline_audit": snapshot.get("telegram_pipeline_audit", {"window_hours": TELEGRAM_EARLY_SIGNAL_HOURS, "early_signal_count": 0, "promotion_count": 0, "promoted_symbols": [], "stage_counts": {}, "records": []}),
+        "telegram_calibration_summary": telegram_calibration_summary if has_access else None,
+        "new_algorithm_signals": new_algorithm_signals,
         "market_summary": snapshot.get("market_summary", ""),
         "last_updated": snapshot_ts.isoformat() if isinstance(snapshot_ts, datetime) else snapshot_ts,
         "coins_analyzed": snapshot.get("coins_analyzed", 0),
@@ -2384,6 +3860,7 @@ async def get_signals(user=Depends(get_optional_user)):
         "telegram_consensus": telegram_data,
         "cross_platform_consensus": cross_platform_consensus,
         "fresh_manipulation_alerts": fresh_manipulation_alerts,
+        "scan_status": build_signal_scan_status(),
     }
 
     return api_ok(set_memory_cache(DASHBOARD_PAYLOAD_CACHE, cache_key, payload))
@@ -2531,87 +4008,264 @@ async def remove_from_watchlist(symbol: str, user=Depends(get_current_user)):
     return api_ok({"message": f"Removed {symbol} from watchlist", "watchlist": watchlist})
 
 # ─────────────────────────────────────────────
-# EMAIL ALERTS FOR STRONG SIGNALS
+# EMAIL ALERTS FOR SIGNAL CATEGORIES
 # ─────────────────────────────────────────────
-async def send_signal_alert_email(email: str, name: str, signal: dict, signal_type: str):
-    """Send email alert for strong signals"""
+def build_signal_route_label(signal: dict) -> str:
+    preferred_venue = (
+        signal.get("preferred_venue")
+        or ((signal.get("decision_engine") or {}).get("preferred_venue"))
+        or {}
+    )
+    if not preferred_venue:
+        return ""
+    route_name = (preferred_venue.get("name") or "").strip()
+    route_pair = (preferred_venue.get("pair") or "").strip()
+    route_type = (preferred_venue.get("type") or "").strip().upper()
+    parts = [part for part in [route_name, route_pair, route_type] if part]
+    return " · ".join(parts)
+
+def classify_signal_alert(signal: dict, signal_type: str) -> Optional[dict]:
+    if not is_true_snapshot_signal(signal, signal_type):
+        return None
+
+    profile = signal.get("manipulation_profile") or {}
+    decision = signal.get("decision_engine") or {}
+    source_stack = signal.get("signal_sources") or signal.get("source_stack") or {}
+    asset_identity = signal.get("asset_identity") or {}
+    rugpull_profile = signal.get("rugpull_profile") or {}
+
+    signal_strength = float(signal.get("signal_strength", 0) or 0)
+    volume_ratio = float(profile.get("volume_market_cap_ratio", 0) or decision.get("volume_market_cap_ratio") or 0)
+    execution_score = float(decision.get("execution_score", 0) or 0)
+    venue_count = int(decision.get("venue_count", 0) or source_stack.get("verified_routes", 0) or 0)
+    source_tier = (source_stack.get("confirmation_tier") or "thin").strip().lower()
+    telegram_active = bool(source_stack.get("telegram_active"))
+    market_confirmed = bool(source_stack.get("coingecko_market_active"))
+    bullish_mentions = int(profile.get("bullish_mentions", 0) or 0)
+    bearish_mentions = int(profile.get("bearish_mentions", 0) or 0)
+    telegram_sources = int(profile.get("telegram_sources", 0) or 0)
+    dump_risk_score = float(profile.get("dump_risk_score", 0) or 0)
+    identity_classification = (asset_identity.get("classification") or "").strip().lower()
+    meme_score = float(asset_identity.get("meme_score", 0) or 0)
+    speculative_score = float(asset_identity.get("speculative_score", 0) or 0)
+    serious_score = float(asset_identity.get("serious_score", 0) or 0)
+    rugpull_score = float(rugpull_profile.get("score", 0) or 0)
+    preferred_route = build_signal_route_label(signal)
+
+    if signal_type == "pump":
+        if is_alert_worthy_signal(signal, signal_type):
+            return {
+                "kind": "confirmed_pump",
+                "title": "Confirmed Pump",
+                "subject_prefix": "🚀 Confirmed Pump",
+                "accent": "#10b981",
+                "intro": "A high-conviction pump signal passed the strict confirmation stack.",
+                "priority": 3,
+                "route_label": preferred_route,
+            }
+
+        new_meme_candidate_ok = (
+            identity_classification in {"meme", "speculative"} and
+            serious_score < 42 and
+            venue_count >= 1 and
+            signal_strength >= 68 and
+            volume_ratio >= 8 and
+            market_confirmed and
+            (telegram_active or bullish_mentions >= 2 or telegram_sources >= 2 or source_tier in {"dual-source", "triple-source", "stacked"}) and
+            (meme_score >= 46 or speculative_score >= 52)
+        )
+        if new_meme_candidate_ok:
+            return {
+                "kind": "new_meme_candidate",
+                "title": "New Meme Candidate",
+                "subject_prefix": "🧪 New Meme Candidate",
+                "accent": "#38bdf8",
+                "intro": "A fresh meme/speculative setup has reached the site before a full confirmed-pump threshold.",
+                "priority": 2,
+                "route_label": preferred_route,
+            }
+        return None
+
+    rugpull_dump_ok = (
+        identity_classification in {"meme", "speculative"} and
+        signal_strength >= 64 and
+        volume_ratio >= 6 and
+        venue_count >= 1 and
+        market_confirmed and
+        (rugpull_score >= 58 or dump_risk_score >= 78) and
+        (bearish_mentions >= 2 or telegram_sources >= 2 or source_tier in {"dual-source", "triple-source", "stacked"})
+    )
+    if rugpull_dump_ok:
+        return {
+            "kind": "rugpull_dump",
+            "title": "Rugpull Dump",
+            "subject_prefix": "🧨 Rugpull Dump",
+            "accent": "#ef4444",
+            "intro": "A bearish meme/speculative unwind is showing rugpull-style distribution risk.",
+            "priority": 3,
+            "route_label": preferred_route,
+        }
+    return None
+
+async def send_signal_alert_email(email: str, name: str, signal: dict, signal_type: str, alert_meta: dict):
+    """Send email alert for categorized signal events."""
+    source_summary = signal.get("source_summary") or ((signal.get("signal_sources") or {}).get("summary")) or ""
+    route_label = alert_meta.get("route_label") or build_signal_route_label(signal)
+    subject_prefix = alert_meta.get("subject_prefix") or ("🚀 Pump" if signal_type == "pump" else "📉 Dump")
+    title = alert_meta.get("title") or signal_type.upper()
+    intro = alert_meta.get("intro") or f"A new {signal_type} event was detected."
+    accent = alert_meta.get("accent") or ("#10b981" if signal_type == "pump" else "#ef4444")
+    rugpull_summary = ((signal.get("rugpull_profile") or {}).get("summary") or "")[:220]
+    cta_label = "Open Coin Page"
     html = f"""
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#0f172a;color:#fff;border-radius:12px">
       <div style="text-align:center;margin-bottom:20px">
         <img src="{LOGO_URL}" alt="PumpRadar" style="width:48px;height:48px;border-radius:10px" />
       </div>
-      <h2 style="color:{'#10b981' if signal_type == 'pump' else '#ef4444'};margin-bottom:16px;text-align:center">
-        {'🚀 PUMP' if signal_type == 'pump' else '📉 DUMP'} Alert: {signal.get('symbol')}
-      </h2>
+      <h2 style="color:{accent};margin-bottom:16px;text-align:center">{title}: {signal.get('symbol')}</h2>
       <p>Hi {name},</p>
-      <p>A strong {signal_type.upper()} signal has been detected:</p>
+      <p>{intro}</p>
       <div style="background:#1e293b;padding:16px;border-radius:8px;margin:16px 0">
         <p style="margin:0 0 8px 0"><strong>Coin:</strong> {signal.get('symbol')} ({signal.get('name', '')})</p>
-        <p style="margin:0 0 8px 0"><strong>Signal Strength:</strong> <span style="color:{'#10b981' if signal_type == 'pump' else '#ef4444'};font-size:18px">{signal.get('signal_strength', 0)}%</span></p>
+        <p style="margin:0 0 8px 0"><strong>Signal Strength:</strong> <span style="color:{accent};font-size:18px">{signal.get('signal_strength', 0)}%</span></p>
         <p style="margin:0 0 8px 0"><strong>Price:</strong> ${signal.get('price', 0)}</p>
         <p style="margin:0 0 8px 0"><strong>1h Change:</strong> {signal.get('price_change_1h', 0):+.2f}%</p>
-        <p style="margin:0"><strong>Reason:</strong> {signal.get('reason', '')[:200]}</p>
+        {f'<p style="margin:0 0 8px 0"><strong>Where to trade:</strong> {route_label}</p>' if route_label else ''}
+        {f'<p style="margin:0 0 8px 0"><strong>Source Stack:</strong> {source_summary[:220]}</p>' if source_summary else ''}
+        {f'<p style="margin:0 0 8px 0"><strong>Rugpull Read:</strong> {rugpull_summary}</p>' if alert_meta.get("kind") == "rugpull_dump" and rugpull_summary else ''}
+        <p style="margin:0"><strong>Reason:</strong> {signal.get('reason', '')[:220]}</p>
       </div>
       <p style="color:#94a3b8;font-size:12px">This is not financial advice. Always do your own research.</p>
-      <a href="{APP_URL}/coin/{signal.get('symbol')}?type={signal_type}" 
-         style="display:inline-block;background:{'#10b981' if signal_type == 'pump' else '#ef4444'};color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:16px">
-        View Details
+      <a href="{APP_URL}/coin/{signal.get('symbol')}?type={signal_type}"
+         style="display:inline-block;background:{accent};color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:16px">
+        {cta_label}
       </a>
     </div>"""
     try:
         await asyncio.to_thread(resend.Emails.send, {
             "from": f"PumpRadar Alerts <{SENDER_EMAIL}>",
             "to": [email],
-            "subject": f"{'🚀' if signal_type == 'pump' else '📉'} {signal_type.upper()} Alert: {signal.get('symbol')} ({signal.get('signal_strength')}%)",
+            "subject": f"{subject_prefix}: {signal.get('symbol')} ({signal.get('signal_strength')}%)",
             "html": html,
         })
-        logger.info(f"Alert email sent to {email} for {signal.get('symbol')}")
+        logger.info("Alert email sent to %s for %s (%s)", email, signal.get("symbol"), alert_meta.get("kind"))
     except Exception as e:
         logger.error(f"Alert email error: {e}")
 
+async def mark_signal_alert_sent(user_id: str, signal: dict, signal_type: str, alert_kind: str) -> bool:
+    symbol = (signal.get("symbol") or "").upper()
+    snapshot_ts = signal.get("timestamp")
+    if isinstance(snapshot_ts, datetime):
+        snapshot_key = snapshot_ts.isoformat()
+    else:
+        snapshot_key = str(snapshot_ts or "")
+    if not user_id or not symbol or not snapshot_key or not alert_kind:
+        return False
+    try:
+        result = await db.signal_alert_events.update_one(
+            {
+                "user_id": user_id,
+                "symbol": symbol,
+                "signal_type": signal_type,
+                "alert_kind": alert_kind,
+                "snapshot_key": snapshot_key,
+            },
+            {
+                "$setOnInsert": {
+                    "created_at": datetime.now(timezone.utc),
+                }
+            },
+            upsert=True,
+        )
+        return bool(getattr(result, "upserted_id", None))
+    except Exception:
+        return False
+
 async def check_and_send_alerts(pump_signals: List[dict], dump_signals: List[dict]):
-    """Check for strong signals and send alerts to users with enabled notifications"""
-    # Get users with alert enabled (Pro subscribers)
+    """Check for categorized signals and send alerts to users with enabled notifications."""
     pro_users = await db.users.find({
         "subscription": {"$in": ["monthly", "annual"]},
         "email_alerts_enabled": True,
     }).to_list(length=1000)
-    
+
     if not pro_users:
         return
-    
-    # Get strong signals (>= 85% strength)
-    strong_pumps = [s for s in pump_signals if s.get("signal_strength", 0) >= 85]
-    strong_dumps = [s for s in dump_signals if s.get("signal_strength", 0) >= 85]
-    
+
+    alert_candidates: List[dict] = []
+    for signal in pump_signals:
+        alert_meta = classify_signal_alert(signal, "pump")
+        if alert_meta:
+            alert_candidates.append({
+                "signal_type": "pump",
+                "signal": signal,
+                "meta": alert_meta,
+            })
+    for signal in dump_signals:
+        alert_meta = classify_signal_alert(signal, "dump")
+        if alert_meta:
+            alert_candidates.append({
+                "signal_type": "dump",
+                "signal": signal,
+                "meta": alert_meta,
+            })
+
+    if not alert_candidates:
+        return
+
+    global_caps = {
+        "new_meme_candidate": 2,
+        "confirmed_pump": 3,
+        "rugpull_dump": 2,
+    }
+
+    def rank_alert(item: dict) -> tuple:
+        signal = item["signal"]
+        meta = item["meta"]
+        rugpull_score = float(((signal.get("rugpull_profile") or {}).get("score") or 0))
+        score_gap = float(((signal.get("direction_audit") or {}).get("score_gap") or 0))
+        return (
+            int(meta.get("priority", 0)),
+            float(signal.get("signal_strength", 0) or 0),
+            rugpull_score,
+            score_gap,
+        )
+
+    ranked_candidates = sorted(alert_candidates, key=rank_alert, reverse=True)
+
     for user in pro_users:
+        user_id = str(user.get("_id") or "")
         email = user.get("email")
         name = user.get("name", "Trader")
         watchlist = user.get("watchlist", [])
-        
-        # Check watchlist alerts
+
         for item in watchlist:
             if not item.get("alertEnabled"):
                 continue
             symbol = item.get("symbol", "").upper()
             threshold = item.get("alertThreshold", 80)
-            
-            # Check pumps
-            for signal in pump_signals:
-                if signal.get("symbol", "").upper() == symbol and signal.get("signal_strength", 0) >= threshold:
-                    asyncio.create_task(send_signal_alert_email(email, name, signal, "pump"))
-            
-            # Check dumps
-            for signal in dump_signals:
-                if signal.get("symbol", "").upper() == symbol and signal.get("signal_strength", 0) >= threshold:
-                    asyncio.create_task(send_signal_alert_email(email, name, signal, "dump"))
-        
-        # Send alerts for any very strong signal (>= 85%) if user has global alerts enabled
+            for alert_item in ranked_candidates:
+                signal = alert_item["signal"]
+                signal_type = alert_item["signal_type"]
+                meta = alert_item["meta"]
+                if (
+                    signal.get("symbol", "").upper() == symbol and
+                    signal.get("signal_strength", 0) >= threshold and
+                    await mark_signal_alert_sent(user_id, signal, signal_type, meta["kind"])
+                ):
+                    asyncio.create_task(send_signal_alert_email(email, name, signal, signal_type, meta))
+
         if user.get("global_alerts_enabled"):
-            for signal in strong_pumps[:3]:  # Max 3 alerts
-                asyncio.create_task(send_signal_alert_email(email, name, signal, "pump"))
-            for signal in strong_dumps[:2]:  # Max 2 alerts
-                asyncio.create_task(send_signal_alert_email(email, name, signal, "dump"))
+            sent_counts: Dict[str, int] = {}
+            for alert_item in ranked_candidates:
+                signal = alert_item["signal"]
+                signal_type = alert_item["signal_type"]
+                meta = alert_item["meta"]
+                kind = meta["kind"]
+                if sent_counts.get(kind, 0) >= global_caps.get(kind, 1):
+                    continue
+                if await mark_signal_alert_sent(user_id, signal, signal_type, kind):
+                    sent_counts[kind] = sent_counts.get(kind, 0) + 1
+                    asyncio.create_task(send_signal_alert_email(email, name, signal, signal_type, meta))
 
 # Alert settings endpoints
 class AlertSettings(BaseModel):
@@ -2988,10 +4642,32 @@ async def send_trial_reminder_emails():
         )
 
 @app.post("/api/crypto/refresh")
-async def manual_refresh(background_tasks: BackgroundTasks, user=Depends(get_current_user)):
-    """Manual trigger for signal refresh (admin only)"""
-    background_tasks.add_task(fetch_and_store_signals)
-    return api_ok({"message": "Signal refresh triggered"})
+async def manual_refresh(user=Depends(require_active_subscription)):
+    """Manual trigger for a real signal refresh"""
+    result = await fetch_and_store_signals(trigger="manual")
+    scan_status = build_signal_scan_status()
+    if not result.get("started") and scan_status.get("running"):
+        return api_ok({
+            "message": "A signal scan is already running.",
+            "started": False,
+            "completed": False,
+            "scan_status": scan_status,
+        })
+    if not result.get("completed"):
+        raise HTTPException(
+            status_code=500,
+            detail=api_err("Signal scan failed. Please try again.", "SIGNAL_REFRESH_FAILED"),
+        )
+    return api_ok({
+        "message": "Signal scan finished successfully.",
+        "started": True,
+        "completed": True,
+        "pump_count": result.get("pump_count", 0),
+        "dump_count": result.get("dump_count", 0),
+        "coins_analyzed": result.get("coins_analyzed", 0),
+        "snapshot_at": serialize_datetime(result.get("snapshot_at")),
+        "scan_status": build_signal_scan_status(),
+    })
 
 # ─────────────────────────────────────────────
 # SUBSCRIPTION / STRIPE
@@ -3367,6 +5043,10 @@ async def startup_event():
     # Create indexes
     await db.users.create_index("email", unique=True)
     await db.signal_snapshots.create_index("timestamp")
+    await db.signal_alert_events.create_index(
+        [("user_id", 1), ("symbol", 1), ("signal_type", 1), ("snapshot_key", 1)],
+        unique=True,
+    )
     await db.payment_transactions.create_index("session_id", unique=True)
     await db.telegram_sources.create_index("source_key", unique=True)
     await db.telegram_signals.create_index([("posted_at", -1)])
@@ -3576,6 +5256,53 @@ def classify_trading_venue(name: str) -> str:
     if any(keyword in venue for keyword in dex_markets):
         return "dex"
     return "cex"
+
+KNOWN_QUOTE_SYMBOLS = {
+    "tether": "USDT",
+    "bridged-usdt": "USDT",
+    "binance-bridged-usdt-bnb-smart-chain": "USDT",
+    "usd-coin": "USDC",
+    "bridged-usdc": "USDC",
+    "usd-coin-bridged": "USDC",
+    "wrapped-bitcoin": "WBTC",
+    "weth": "WETH",
+    "wrapped-ether": "WETH",
+    "ethereum": "ETH",
+    "bitcoin": "BTC",
+    "wrapped-bnb": "WBNB",
+    "wbnb": "WBNB",
+    "solana": "SOL",
+}
+
+def is_contract_like_symbol(value: Optional[str]) -> bool:
+    token = (value or "").strip()
+    return token.lower().startswith("0x") and len(token) >= 20
+
+def normalize_quote_symbol(raw_target: Optional[str], target_coin_id: Optional[str]) -> str:
+    target = (raw_target or "").strip().upper()
+    if target and not is_contract_like_symbol(target):
+        return target
+
+    normalized_target_coin = (target_coin_id or "").strip().lower()
+    if normalized_target_coin:
+        for key, symbol in KNOWN_QUOTE_SYMBOLS.items():
+            if key in normalized_target_coin:
+                return symbol
+
+    return target or "QUOTE"
+
+def build_route_pair_label(
+    *,
+    symbol: str,
+    base: Optional[str],
+    target: Optional[str],
+    target_coin_id: Optional[str] = None,
+) -> str:
+    base_symbol = (symbol or "").strip().upper() or (base or "").strip().upper() or "BASE"
+    if base and not is_contract_like_symbol(base):
+        base_symbol = (base or "").strip().upper() or base_symbol
+    quote_symbol = normalize_quote_symbol(target, target_coin_id)
+    return f"{base_symbol}/{quote_symbol}"
 
 def score_trust_level(trust_score: str) -> int:
     score = (trust_score or "").lower()
@@ -3984,6 +5711,138 @@ def build_tokenomics_profile(details: dict) -> dict:
         "source": "CoinGecko",
     }
 
+MEME_CATEGORY_KEYWORDS = {
+    "meme", "memes", "animal meme", "internet meme", "dog-themed", "cat-themed", "frog-themed",
+}
+MEME_NAME_KEYWORDS = {
+    "inu", "doge", "shib", "pepe", "bonk", "floki", "wojak", "mog", "cat", "dog", "moon",
+    "pump", "baby", "elon", "degen", "based", "rekt", "goat", "fart", "trump", "chillguy",
+}
+SERIOUS_CATEGORY_KEYWORDS = {
+    "artificial intelligence", "ai", "layer 1", "layer 2", "oracle", "infrastructure", "depin",
+    "bridge", "restaking", "liquid staking", "storage", "privacy", "real world assets", "rwa",
+    "gaming", "exchange-based tokens", "derivatives", "lending", "payments", "enterprise",
+    "decentralized exchange", "dex", "yield farming", "defi", "smart contract platform",
+}
+SERIOUS_NAME_KEYWORDS = {
+    "chain", "network", "protocol", "finance", "swap", "dex", "bridge", "oracle", "compute",
+    "infrastructure", "staking", "rollup", "layer", "data", "storage", "cloud",
+    "artificial", "intelligence", "superintelligence", "alliance",
+}
+
+def normalize_identity_text(value: Optional[str]) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", (value or "").lower()))
+
+def build_asset_identity_profile(
+    *,
+    symbol: str,
+    coin_id: str,
+    name: Optional[str],
+    market_cap: float,
+    details: Optional[dict],
+    venues: Optional[List[dict]],
+) -> dict:
+    details = details or {}
+    venues = venues or []
+    categories = [str(item).strip() for item in (details.get("categories") or []) if str(item).strip()]
+    categories_blob = " ".join(normalize_identity_text(item) for item in categories)
+    identity_blob = " ".join(
+        part for part in [
+            normalize_identity_text(symbol),
+            normalize_identity_text(coin_id),
+            normalize_identity_text(name),
+            categories_blob,
+        ] if part
+    )
+    platforms = details.get("platforms") or {}
+    has_contract = any(bool(address) for address in platforms.values())
+    dex_routes = len([venue for venue in venues if venue.get("type") in {"dex", "swap"}])
+    cex_routes = len([venue for venue in venues if venue.get("type") == "cex"])
+
+    meme_category_hits = sum(1 for keyword in MEME_CATEGORY_KEYWORDS if keyword in categories_blob)
+    meme_name_hits = sum(1 for keyword in MEME_NAME_KEYWORDS if keyword in identity_blob)
+    serious_category_hits = sum(1 for keyword in SERIOUS_CATEGORY_KEYWORDS if keyword in categories_blob)
+    serious_name_hits = sum(1 for keyword in SERIOUS_NAME_KEYWORDS if keyword in identity_blob)
+
+    meme_score = 0.0
+    meme_score += meme_category_hits * 34.0
+    meme_score += min(28.0, meme_name_hits * 12.0)
+    if has_contract:
+        meme_score += 8.0
+    if dex_routes:
+        meme_score += min(16.0, dex_routes * 4.0)
+    if 0 < market_cap <= 1_000_000_000:
+        meme_score += 12.0
+    elif 0 < market_cap <= 2_500_000_000:
+        meme_score += 6.0
+
+    speculative_score = 0.0
+    if has_contract:
+        speculative_score += 14.0
+    if dex_routes:
+        speculative_score += min(18.0, dex_routes * 4.5)
+    if market_cap and market_cap <= 750_000_000:
+        speculative_score += 20.0
+    elif market_cap and market_cap <= 2_000_000_000:
+        speculative_score += 10.0
+    if not categories:
+        speculative_score += 8.0
+    if cex_routes <= 2:
+        speculative_score += 8.0
+    speculative_score += min(20.0, meme_name_hits * 4.0)
+
+    serious_score = 0.0
+    serious_score += serious_category_hits * 24.0
+    serious_score += min(30.0, serious_name_hits * 7.5)
+    if serious_name_hits >= 3:
+        serious_score += 12.0
+    if market_cap >= 5_000_000_000:
+        serious_score += 26.0
+    elif market_cap >= 2_000_000_000:
+        serious_score += 18.0
+    elif market_cap >= 1_000_000_000:
+        serious_score += 10.0
+    if cex_routes >= 4 and dex_routes == 0:
+        serious_score += 8.0
+
+    meme_score = round(min(100.0, meme_score), 1)
+    speculative_score = round(min(100.0, speculative_score), 1)
+    serious_score = round(min(100.0, serious_score), 1)
+
+    if meme_score >= max(42.0, serious_score + 8.0):
+        classification = "meme"
+    elif serious_score >= max(38.0, meme_score + 10.0):
+        classification = "serious"
+    else:
+        classification = "speculative"
+
+    summary = (
+        f"{symbol} classifies as {classification}. "
+        f"Meme score {meme_score}/100, speculative score {speculative_score}/100, serious score {serious_score}/100."
+    )
+    if categories:
+        summary += f" Categories: {', '.join(categories[:4])}."
+    if has_contract:
+        summary += " Contract-based asset."
+    if dex_routes:
+        summary += f" {dex_routes} DEX/SWAP route{'s' if dex_routes != 1 else ''} detected."
+
+    return {
+        "classification": classification,
+        "meme_score": meme_score,
+        "speculative_score": speculative_score,
+        "serious_score": serious_score,
+        "meme_category_hits": meme_category_hits,
+        "meme_name_hits": meme_name_hits,
+        "serious_category_hits": serious_category_hits,
+        "serious_name_hits": serious_name_hits,
+        "has_contract": has_contract,
+        "dex_routes": dex_routes,
+        "cex_routes": cex_routes,
+        "categories": categories[:8],
+        "summary": summary,
+    }
+
 def build_holder_concentration_profile(holder_data: dict, goplus_security: dict) -> dict:
     distribution = holder_data.get("distribution_percentage") or {}
     top_10 = safe_float(distribution.get("top_10"))
@@ -4211,6 +6070,106 @@ def build_contract_risk_profile(platform: Optional[str], contract_address: Optio
         "source": "GoPlus",
     }
 
+def build_rugpull_profile(
+    *,
+    asset_identity: Optional[dict],
+    tokenomics: Optional[dict],
+    wallet_cluster_intelligence: Optional[dict],
+    contract_risk: Optional[dict],
+    venues: Optional[List[dict]],
+    manipulation_profile: Optional[dict] = None,
+) -> dict:
+    asset_identity = asset_identity or {}
+    tokenomics = tokenomics or {}
+    wallet_cluster_intelligence = wallet_cluster_intelligence or {}
+    contract_risk = contract_risk or {}
+    venues = venues or []
+    manipulation_profile = manipulation_profile or {}
+
+    venue_count = len(venues)
+    dex_routes = len([venue for venue in venues if venue.get("type") in {"dex", "swap"}])
+    contract_risk_score = safe_float(contract_risk.get("risk_score"))
+    contract_risk_level = (contract_risk.get("risk_level") or "").lower()
+    cluster_risk_score = safe_float(wallet_cluster_intelligence.get("cluster_risk_score"))
+    insider_pct = safe_float(wallet_cluster_intelligence.get("combined_insider_pct"))
+    top_10_pct = safe_float(wallet_cluster_intelligence.get("top_10_pct"))
+    long_tail_pct = safe_float(wallet_cluster_intelligence.get("long_tail_pct"))
+    dilution_gap = safe_float(tokenomics.get("dilution_gap_pct"))
+    dump_risk_score = safe_float(manipulation_profile.get("dump_risk_score"))
+
+    rugpull_score = 0.0
+    warnings: List[str] = []
+
+    if asset_identity.get("classification") in {"meme", "speculative"}:
+        rugpull_score += 12.0
+    if contract_risk_level == "high" or (contract_risk_score is not None and contract_risk_score <= 45):
+        rugpull_score += 32.0
+        warnings.append("Contract risk is already elevated.")
+    elif contract_risk_level == "medium" or (contract_risk_score is not None and contract_risk_score <= 65):
+        rugpull_score += 16.0
+
+    if cluster_risk_score is not None and cluster_risk_score >= 75:
+        rugpull_score += 24.0
+        warnings.append("Wallet clustering is severe.")
+    elif cluster_risk_score is not None and cluster_risk_score >= 60:
+        rugpull_score += 14.0
+
+    if insider_pct is not None and insider_pct >= 12:
+        rugpull_score += 18.0
+        warnings.append("Insider concentration is elevated.")
+    elif insider_pct is not None and insider_pct >= 6:
+        rugpull_score += 10.0
+
+    if top_10_pct is not None and top_10_pct >= 55:
+        rugpull_score += 14.0
+    elif top_10_pct is not None and top_10_pct >= 40:
+        rugpull_score += 8.0
+
+    if long_tail_pct is not None and long_tail_pct < 30:
+        rugpull_score += 10.0
+
+    if dilution_gap is not None and dilution_gap >= 50:
+        rugpull_score += 12.0
+    elif dilution_gap is not None and dilution_gap >= 30:
+        rugpull_score += 6.0
+
+    if venue_count <= 1:
+        rugpull_score += 14.0
+        warnings.append("Execution routes are extremely limited.")
+    elif venue_count <= 2:
+        rugpull_score += 8.0
+    if dex_routes and venue_count <= 3:
+        rugpull_score += 6.0
+
+    if dump_risk_score is not None and dump_risk_score >= 80:
+        rugpull_score += 12.0
+    elif dump_risk_score is not None and dump_risk_score >= 65:
+        rugpull_score += 6.0
+
+    rugpull_score = round(min(100.0, rugpull_score), 1)
+    if rugpull_score >= 72:
+        verdict = "high"
+    elif rugpull_score >= 48:
+        verdict = "medium"
+    else:
+        verdict = "low"
+
+    summary = (
+        f"Rugpull profile is {verdict}. Score {rugpull_score}/100 "
+        f"with {venue_count} route{'s' if venue_count != 1 else ''} and {dex_routes} DEX/SWAP route{'s' if dex_routes != 1 else ''}."
+    )
+    if warnings:
+        summary += " " + " ".join(warnings[:3])
+
+    return {
+        "score": rugpull_score,
+        "verdict": verdict,
+        "venue_count": venue_count,
+        "dex_routes": dex_routes,
+        "warnings": warnings[:4],
+        "summary": summary,
+    }
+
 def get_exchange_metadata(identifier: str) -> dict:
     if not identifier:
         return {}
@@ -4280,9 +6239,25 @@ def build_coin_analysis_sections(
     reason: str,
     social_volume: float = 0,
     galaxy_score: float = 0,
+    direction_audit: Optional[dict] = None,
 ) -> List[dict]:
     volume_ratio = (volume_24h / market_cap * 100) if market_cap else 0.0
-    direction_word = "bullish continuation" if signal_type == "pump" else "distribution / sell pressure"
+    resolved_direction = (direction_audit or {}).get("resolved_direction", signal_type)
+    transition_state = (direction_audit or {}).get("transition_state", "bullish_continuation" if resolved_direction == "pump" else "bearish_breakdown")
+    if resolved_direction == "pump":
+        if transition_state == "bullish_pullback":
+            direction_word = "a bullish pullback within a broader upside structure"
+        elif transition_state == "bullish_reversal":
+            direction_word = "an early bullish reversal attempt after prior weakness"
+        else:
+            direction_word = "bullish continuation"
+    else:
+        if transition_state == "dead_cat_bounce":
+            direction_word = "bearish structure with only a countertrend bounce so far"
+        elif transition_state == "bearish_reversal":
+            direction_word = "failed upside structure rolling into fresh downside pressure"
+        else:
+            direction_word = "distribution / sell pressure"
     acceleration = "accelerating" if abs(price_change_1h) >= abs(price_change_24h) / 6 else "steady"
     confidence_label = confidence.capitalize()
     risk_label = risk_level.capitalize()
@@ -4318,8 +6293,8 @@ def build_coin_analysis_sections(
             "title": "Risk Watch",
             "body": (
                 f"The main invalidation to monitor is a sharp cooldown in hourly momentum or a drop in volume after the initial move. "
-                f"For {'pump' if signal_type == 'pump' else 'dump'} setups, weak follow-through after a strong first impulse often signals exhaustion, "
-                f"fake breakout behavior, or a fast reversal."
+                f"For {'pump' if resolved_direction == 'pump' else 'dump'} setups, weak follow-through after a strong first impulse often signals exhaustion, "
+                f"fake {'breakout' if resolved_direction == 'pump' else 'breakdown'} behavior, or a fast reversal."
             ),
         },
     ]
@@ -4395,7 +6370,13 @@ def build_market_venues(symbol: str, coin_id: str, platform: Optional[str] = Non
         market_meta = get_exchange_metadata(market_identifier) if market_identifier else {}
         base = ticker.get("base") or symbol
         target = ticker.get("target") or "USD"
-        dedupe_key = (market_name.lower(), base.upper(), target.upper())
+        pair_label = build_route_pair_label(
+            symbol=symbol,
+            base=base,
+            target=target,
+            target_coin_id=ticker.get("target_coin_id"),
+        )
+        dedupe_key = (market_name.lower(), pair_label.upper())
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
@@ -4408,7 +6389,7 @@ def build_market_venues(symbol: str, coin_id: str, platform: Optional[str] = Non
             "name": market_meta.get("name") or market_name,
             "url": trade_url,
             "type": classify_trading_venue(market_name),
-            "pair": f"{base}/{target}",
+            "pair": pair_label,
             "volume_usd": volume_usd,
             "trust_score": ticker.get("trust_score") or "unknown",
             "trust_score_numeric": score_trust_level(ticker.get("trust_score") or "unknown"),
@@ -4454,8 +6435,11 @@ def build_signal_execution_plan(
     confidence: str,
     risk_level: str,
     venues: List[dict],
+    direction_audit: Optional[dict] = None,
 ) -> dict:
     volume_ratio = (volume_24h / market_cap * 100) if market_cap else 0.0
+    resolved_direction = (direction_audit or {}).get("resolved_direction", signal_type)
+    transition_state = (direction_audit or {}).get("transition_state", "bullish_continuation" if resolved_direction == "pump" else "bearish_breakdown")
     absolute_move = max(abs(price_change_1h), abs(price_change_24h) / 6, abs(price_change_7d) / 20)
     volatility_pct = max(1.2, min(14.0, absolute_move * 1.35))
     best_venue = max(
@@ -4484,7 +6468,7 @@ def build_signal_execution_plan(
     target1_buffer_pct = max(1.2, min(8.0, stop_buffer_pct * 1.2))
     target2_buffer_pct = max(2.4, min(14.0, stop_buffer_pct * 2.0))
 
-    if signal_type == "pump":
+    if resolved_direction == "pump":
         entry_low = price * (1 - entry_buffer_pct / 100)
         entry_high = price * (1 + entry_buffer_pct / 100)
         stop_loss = price * (1 - stop_buffer_pct / 100)
@@ -4494,7 +6478,12 @@ def build_signal_execution_plan(
             f"Pump thesis weakens if {symbol} loses {format_currency_compact(stop_loss)} "
             f"or if hourly volume fades materially while price stalls."
         )
-        setup_bias = "breakout continuation"
+        if transition_state == "bullish_pullback":
+            setup_bias = "pullback continuation"
+        elif transition_state == "bullish_reversal":
+            setup_bias = "reversal attempt"
+        else:
+            setup_bias = "breakout continuation"
     else:
         entry_low = price * (1 - entry_buffer_pct / 100)
         entry_high = price * (1 + entry_buffer_pct / 100)
@@ -4505,7 +6494,7 @@ def build_signal_execution_plan(
             f"Dump thesis weakens if {symbol} reclaims {format_currency_compact(stop_loss)} "
             f"or if downside momentum fades despite elevated volume."
         )
-        setup_bias = "downside continuation"
+        setup_bias = "failed-bounce continuation" if transition_state == "dead_cat_bounce" else "downside continuation"
 
     warning_flags: List[str] = []
     if volume_ratio < 8:
@@ -4600,6 +6589,325 @@ async def get_recent_telegram_signal_map(hours: int = 24) -> Dict[str, dict]:
 
     return set_memory_cache(TELEGRAM_SIGNAL_MAP_CACHE, cache_key, symbol_map)
 
+def build_telegram_early_signal_candidates(signals: List[dict], hours: int = TELEGRAM_EARLY_SIGNAL_HOURS, limit: int = TELEGRAM_EARLY_SIGNAL_LIMIT) -> List[dict]:
+    grouped: Dict[str, dict] = {}
+    allowed_quality_labels = {"real_trade_signal", "possible_trade_signal"}
+
+    filtered_signals = []
+    ignored_by_quality = 0
+    for signal in signals:
+        quality = signal.get("quality_judge") or {}
+        if quality and quality.get("label") not in allowed_quality_labels:
+            ignored_by_quality += 1
+            continue
+        if quality and quality.get("is_trade_signal") is False:
+            ignored_by_quality += 1
+            continue
+        filtered_signals.append(signal)
+
+    for signal in filtered_signals:
+        symbol = (signal.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        item = grouped.setdefault(symbol, {
+            "symbol": symbol,
+            "coin_name": signal.get("coin_name") or symbol,
+            "coin_id": signal.get("coin_id"),
+            "direction_votes": {"pump": 0, "dump": 0},
+            "mentions": 0,
+            "source_names": set(),
+            "scores": [],
+            "parser_scores": [],
+            "cross_source_max": 1,
+            "latest_posted_at": None,
+            "reference_price": None,
+            "message_urls": [],
+        })
+        item["mentions"] += 1
+        direction = signal.get("direction") or "pump"
+        item["direction_votes"][direction] = item["direction_votes"].get(direction, 0) + 1
+        if signal.get("source_name"):
+            item["source_names"].add(signal["source_name"])
+        if signal.get("composite_score") is not None:
+            item["scores"].append(float(signal.get("composite_score") or 0))
+        if signal.get("parser_confidence") is not None:
+            item["parser_scores"].append(float(signal.get("parser_confidence") or 0))
+        item["cross_source_max"] = max(item["cross_source_max"], int(signal.get("cross_source_count") or 1))
+        posted_at = normalize_datetime(signal.get("posted_at"))
+        if posted_at and (item["latest_posted_at"] is None or posted_at > item["latest_posted_at"]):
+            item["latest_posted_at"] = posted_at
+            item["reference_price"] = signal.get("reference_price")
+            if signal.get("coin_name"):
+                item["coin_name"] = signal.get("coin_name")
+            if signal.get("coin_id"):
+                item["coin_id"] = signal.get("coin_id")
+        if signal.get("message_url"):
+            item["message_urls"].append(signal["message_url"])
+
+    early_signals: List[dict] = []
+    for item in grouped.values():
+        unique_sources = len(item["source_names"])
+        avg_score = round(sum(item["scores"]) / len(item["scores"]), 2) if item["scores"] else 0.0
+        parser_confidence_avg = round(sum(item["parser_scores"]) / len(item["parser_scores"]), 2) if item["parser_scores"] else 0.0
+        bullish_mentions = int(item["direction_votes"].get("pump", 0))
+        bearish_mentions = int(item["direction_votes"].get("dump", 0))
+        direction = "dump" if bearish_mentions > bullish_mentions else "pump"
+        promotion_reasons: List[str] = []
+        if item["mentions"] >= 2:
+            promotion_reasons.append("repeat_mentions")
+        if unique_sources >= 2:
+            promotion_reasons.append("cross_source_confirmation")
+        if avg_score >= 60:
+            promotion_reasons.append("high_composite_score")
+        if item["cross_source_max"] >= 2:
+            promotion_reasons.append("clustered_call_window")
+
+        candidate_ready = bool(
+            (item["mentions"] >= 2 and unique_sources >= 2) or
+            (avg_score >= 60 and item["cross_source_max"] >= 2) or
+            (item["mentions"] >= 3 and avg_score >= 52)
+        )
+        candidate_priority = round(
+            item["mentions"] * 11 +
+            unique_sources * 14 +
+            avg_score * 0.65 +
+            parser_confidence_avg * 0.15 +
+            item["cross_source_max"] * 8,
+            2,
+        )
+
+        early_signals.append({
+            "symbol": item["symbol"],
+            "coin_name": item["coin_name"],
+            "coin_id": item["coin_id"],
+            "direction": direction,
+            "mentions": item["mentions"],
+            "bullish_mentions": bullish_mentions,
+            "bearish_mentions": bearish_mentions,
+            "unique_sources": unique_sources,
+            "avg_score": avg_score,
+            "parser_confidence_avg": parser_confidence_avg,
+            "cross_source_max": item["cross_source_max"],
+            "candidate_ready": candidate_ready,
+            "candidate_priority": candidate_priority,
+            "promotion_reasons": promotion_reasons,
+            "latest_posted_at": serialize_datetime(item["latest_posted_at"]),
+            "reference_price": item["reference_price"],
+            "source_names": sorted(item["source_names"]),
+            "message_urls": item["message_urls"][:3],
+            "window_hours": hours,
+        })
+
+    early_signals.sort(
+        key=lambda item: (
+            int(item["candidate_ready"]),
+            item["candidate_priority"],
+            item["avg_score"],
+            item["mentions"],
+        ),
+        reverse=True,
+    )
+    return early_signals[:limit]
+
+async def persist_telegram_pipeline_audit(records: List[dict], snapshot_at: datetime, trigger: str) -> None:
+    if not records:
+        return
+    now = datetime.now(timezone.utc)
+    try:
+        await db.telegram_signal_pipeline_audit.insert_many([
+            {
+                **record,
+                "trigger": trigger,
+                "snapshot_at": snapshot_at,
+                "created_at": now,
+            }
+            for record in records
+        ])
+    except Exception as e:
+        logger.warning("Failed to persist Telegram pipeline audit records: %s", e)
+
+async def build_telegram_calibration_summary(hours: int = 72) -> dict:
+    hours = max(6, min(hours, 24 * 14))
+    cache_key = f"telegram_calibration::{hours}"
+    cached = get_memory_cache(TELEGRAM_CALIBRATION_CACHE, cache_key, ttl_seconds=180)
+    if cached is not None:
+        return cached
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=hours)
+    parser_rejections = await db.telegram_signal_rejections.find({
+        "created_at": {"$gte": cutoff},
+    }).sort("created_at", -1).limit(2000).to_list(length=2000)
+    pipeline_records = await db.telegram_signal_pipeline_audit.find({
+        "created_at": {"$gte": cutoff},
+    }).sort("created_at", -1).limit(3000).to_list(length=3000)
+    telegram_signals = await db.telegram_signals.find({
+        "posted_at": {"$gte": cutoff},
+    }).sort("posted_at", -1).limit(3000).to_list(length=3000)
+    latest_snapshot = await db.signal_snapshots.find_one({}, sort=[("timestamp", -1)])
+
+    parser_reason_counts: Counter[str] = Counter()
+    short_call_rejections = 0
+    for item in parser_rejections:
+        parser_reason_counts.update(item.get("reasons") or [])
+        if item.get("short_call_detected"):
+            short_call_rejections += 1
+
+    pipeline_stage_counts: Counter[str] = Counter()
+    pipeline_reason_counts: Counter[tuple[str, str]] = Counter()
+    for item in pipeline_records:
+        stage = item.get("stage") or "unknown"
+        pipeline_stage_counts[stage] += 1
+        for reason in (item.get("reasons") or ["unspecified"]):
+            pipeline_reason_counts[(stage, reason)] += 1
+
+    verified_4h = []
+    verified_4h_cross_source = []
+    source_rollup: Dict[str, dict] = {}
+    for signal in telegram_signals:
+        source_name = signal.get("source_name") or "Unknown source"
+        bucket = source_rollup.setdefault(source_name, {
+            "source_name": source_name,
+            "count": 0,
+            "composite_total": 0.0,
+            "cross_source_total": 0.0,
+            "verified_count": 0,
+        })
+        bucket["count"] += 1
+        bucket["composite_total"] += float(signal.get("composite_score") or 0)
+        bucket["cross_source_total"] += float(signal.get("cross_source_count") or 1)
+        four_hour = ((signal.get("verification") or {}).get("four_hour") or {})
+        if four_hour.get("checked_at") is not None:
+            hit = bool(four_hour.get("hit"))
+            verified_4h.append(hit)
+            bucket["verified_count"] += 1
+            if int(signal.get("cross_source_count") or 1) >= 2:
+                verified_4h_cross_source.append(hit)
+
+    source_leaders = sorted(
+        [
+            {
+                "source_name": source_name,
+                "signal_count": bucket["count"],
+                "avg_composite_score": round(bucket["composite_total"] / bucket["count"], 2) if bucket["count"] else 0.0,
+                "avg_cross_source_count": round(bucket["cross_source_total"] / bucket["count"], 2) if bucket["count"] else 0.0,
+                "verified_count": bucket["verified_count"],
+            }
+            for source_name, bucket in source_rollup.items()
+        ],
+        key=lambda item: (
+            item["signal_count"],
+            item["avg_composite_score"],
+            item["verified_count"],
+        ),
+        reverse=True,
+    )[:5]
+
+    latest_snapshot_signals = ((latest_snapshot or {}).get("pump_signals", []) or []) + ((latest_snapshot or {}).get("dump_signals", []) or [])
+    latest_snapshot_telegram_confirmed = [
+        signal for signal in latest_snapshot_signals
+        if str(signal.get("candidate_origin") or "").startswith("telegram") or (signal.get("telegram_early_seed") is not None)
+    ]
+
+    overall_4h_hit_rate = round((sum(1 for item in verified_4h if item) / len(verified_4h)) * 100, 2) if verified_4h else 0.0
+    cross_source_4h_hit_rate = round((sum(1 for item in verified_4h_cross_source if item) / len(verified_4h_cross_source)) * 100, 2) if verified_4h_cross_source else 0.0
+
+    top_parser_rejections = [
+        {
+            "reason": reason,
+            "count": count,
+            "share_pct": round((count / max(1, len(parser_rejections))) * 100, 2),
+        }
+        for reason, count in parser_reason_counts.most_common(5)
+    ]
+    top_pipeline_rejections = [
+        {
+            "stage": stage,
+            "reason": reason,
+            "count": count,
+            "share_pct": round((count / max(1, len(pipeline_records))) * 100, 2),
+        }
+        for (stage, reason), count in pipeline_reason_counts.most_common(7)
+    ]
+
+    recommendations: List[dict] = []
+
+    missing_structure = parser_reason_counts.get("missing_contract_or_structured_plan", 0)
+    if missing_structure >= 8:
+        recommendations.append({
+            "priority": "high",
+            "title": "Short-call parser still drops a meaningful share of messages",
+            "detail": (
+                f"{missing_structure} parser rejects in the last {hours}h still failed on missing contract/plan structure. "
+                f"{short_call_rejections} of total rejects were short-call style messages."
+            ),
+            "suggested_action": "Keep early-signal mode permissive and consider adding channel-specific parser patterns for the noisiest formats.",
+        })
+
+    market_lookup_misses = pipeline_stage_counts.get("market_data_lookup", 0)
+    if market_lookup_misses >= 5:
+        recommendations.append({
+            "priority": "high",
+            "title": "Telegram seeds are being lost at market lookup",
+            "detail": f"{market_lookup_misses} promoted Telegram symbols in the last {hours}h could not be resolved into market data.",
+            "suggested_action": "Improve symbol-to-coin resolution, contract-based lookup, and fallback handling for newly launched tokens.",
+        })
+
+    source_stack_thin = sum(
+        count for (stage, reason), count in pipeline_reason_counts.items()
+        if stage == "snapshot_gate" and reason in {"source_stack_too_thin_for_pump", "source_stack_too_thin_for_dump"}
+    )
+    if source_stack_thin >= 5:
+        recommendations.append({
+            "priority": "medium",
+            "title": "Snapshot gate still removes many Telegram-led setups",
+            "detail": f"{source_stack_thin} recent snapshot rejects failed mainly because the source stack stayed too thin after enrichment.",
+            "suggested_action": "Consider keeping Telegram-led symbols visible longer as early signals even when they miss full snapshot confirmation.",
+        })
+
+    if verified_4h_cross_source and cross_source_4h_hit_rate >= overall_4h_hit_rate + 8:
+        recommendations.append({
+            "priority": "medium",
+            "title": "Cross-source Telegram clusters are outperforming the baseline",
+            "detail": (
+                f"4h hit rate is {cross_source_4h_hit_rate:.2f}% for signals with cross-source count >= 2, "
+                f"vs {overall_4h_hit_rate:.2f}% overall."
+            ),
+            "suggested_action": "Increase ranking weight for clustered Telegram calls rather than lowering all thresholds globally.",
+        })
+
+    if not recommendations:
+        recommendations.append({
+            "priority": "low",
+            "title": "No dominant failure mode yet",
+            "detail": f"Recent Telegram flow is distributed across parser, lookup, and snapshot stages over the last {hours}h.",
+            "suggested_action": "Collect more audit data before moving thresholds again.",
+        })
+
+    summary = {
+        "hours": hours,
+        "generated_at": serialize_datetime(now),
+        "totals": {
+            "stored_signals": len(telegram_signals),
+            "parser_rejections": len(parser_rejections),
+            "pipeline_rejections": len(pipeline_records),
+            "short_call_rejections": short_call_rejections,
+            "promoted_candidates": pipeline_stage_counts.get("telegram_promoted_candidate", 0) + pipeline_stage_counts.get("telegram_seed_attached", 0),
+            "snapshot_rejections": pipeline_stage_counts.get("snapshot_gate", 0),
+            "latest_snapshot_telegram_confirmed": len(latest_snapshot_telegram_confirmed),
+            "verified_4h_samples": len(verified_4h),
+        },
+        "hit_rates": {
+            "overall_4h_pct": overall_4h_hit_rate,
+            "cross_source_4h_pct": cross_source_4h_hit_rate,
+        },
+        "top_parser_rejections": top_parser_rejections,
+        "top_pipeline_rejections": top_pipeline_rejections,
+        "source_leaders": source_leaders,
+        "recommendations": recommendations[:4],
+    }
+    return set_memory_cache(TELEGRAM_CALIBRATION_CACHE, cache_key, summary)
+
 def build_manipulation_profile(
     *,
     signal_type: str,
@@ -4621,7 +6929,10 @@ def build_manipulation_profile(
     tokenomics: Optional[dict] = None,
     wallet_concentration: Optional[dict] = None,
     contract_risk: Optional[dict] = None,
+    direction_audit: Optional[dict] = None,
 ) -> dict:
+    resolved_direction = (direction_audit or {}).get("resolved_direction", signal_type)
+    transition_state = (direction_audit or {}).get("transition_state", "bullish_continuation" if resolved_direction == "pump" else "bearish_breakdown")
     telegram_stats = telegram_stats or {}
     volume_ratio = (volume_24h / market_cap * 100) if market_cap else float((decision_engine or {}).get("volume_market_cap_ratio") or 0)
     venue_count = int((decision_engine or {}).get("venue_count") or 0)
@@ -4659,7 +6970,7 @@ def build_manipulation_profile(
         min(volume_ratio, 30) * 0.35
     ))
 
-    if signal_type == "pump":
+    if resolved_direction == "pump":
         upside_24h = max(0.0, float(price_change_24h or 0))
         upside_1h = max(0.0, float(price_change_1h or 0))
         pump_extension_score = min(
@@ -4726,8 +7037,12 @@ def build_manipulation_profile(
             (8 if open_interest and open_interest >= 10_000_000 else 0)
         ))
 
-    if signal_type == "pump":
-        if dump_risk_score >= 76 and ((max(price_change_24h or 0, 0) >= 120 and max(price_change_1h or 0, 0) >= 15) or (max(price_change_24h or 0, 0) >= 80 and max(price_change_1h or 0, 0) >= 20)):
+    if resolved_direction == "pump":
+        if transition_state == "bullish_reversal":
+            stage = "reversal attempt"
+        elif transition_state == "bullish_pullback":
+            stage = "pullback continuation"
+        elif dump_risk_score >= 76 and ((max(price_change_24h or 0, 0) >= 120 and max(price_change_1h or 0, 0) >= 15) or (max(price_change_24h or 0, 0) >= 80 and max(price_change_1h or 0, 0) >= 20)):
             stage = "blow-off risk"
         elif coordination_score >= 45 and social_burst_score >= 45:
             stage = "coordinated hype"
@@ -4738,12 +7053,23 @@ def build_manipulation_profile(
         else:
             stage = "breakout active"
     else:
-        if dump_risk_score >= 78:
+        if transition_state == "dead_cat_bounce":
+            stage = "countertrend bounce"
+        elif dump_risk_score >= 78:
             stage = "unwind active"
         elif coordination_score >= 40:
             stage = "coordinated unwind"
         else:
             stage = "breakdown pressure"
+
+    bullish_only_stages = {"breakout active", "stealth build", "coordinated hype", "extended breakout", "pullback continuation", "reversal attempt", "blow-off risk"}
+    bearish_only_stages = {"breakdown pressure", "coordinated unwind", "unwind active", "countertrend bounce"}
+    if resolved_direction == "pump" and stage in bearish_only_stages:
+        logger.warning("Directional guardrail corrected %s stage from %s to breakout active for pump structure", symbol, stage)
+        stage = "breakout active"
+    elif resolved_direction == "dump" and stage in bullish_only_stages:
+        logger.warning("Directional guardrail corrected %s stage from %s to breakdown pressure for dump structure", symbol, stage)
+        stage = "breakdown pressure"
 
     warning_flags: List[str] = []
     if unique_sources >= 3:
@@ -4759,7 +7085,7 @@ def build_manipulation_profile(
     if contract_risk_penalty >= 8:
         warning_flags.append("Contract risk is elevated, which weakens trust in the move.")
 
-    risk_term = "reversal risk" if signal_type == "pump" else "dump risk"
+    risk_term = "reversal risk" if resolved_direction == "pump" else "dump risk"
     summary = (
         f"{symbol} is currently in {stage}: manipulation score {manipulation_score}/100, "
         f"coordination {coordination_score}/100, social burst {social_burst_score}/100, "
@@ -4775,8 +7101,10 @@ def build_manipulation_profile(
         "liquidity_trap_score": liquidity_trap_score,
         "early_entry_score": early_entry_score,
         "dump_risk_score": dump_risk_score,
-        "risk_metric_label": "Reversal Risk" if signal_type == "pump" else "Dump Risk",
+        "risk_metric_label": "Reversal Risk" if resolved_direction == "pump" else "Dump Risk",
         "stage": stage,
+        "resolved_direction": resolved_direction,
+        "transition_state": transition_state,
         "telegram_mentions": mentions,
         "telegram_sources": unique_sources,
         "bullish_mentions": bullish_mentions,
@@ -4798,6 +7126,7 @@ def build_manipulation_timeline(
     galaxy_score: float,
 ) -> List[dict]:
     events: List[dict] = []
+    resolved_direction = manipulation_profile.get("resolved_direction", signal_type)
     mentions = manipulation_profile.get("telegram_mentions", 0)
     sources = manipulation_profile.get("telegram_sources", 0)
     volume_ratio = manipulation_profile.get("volume_market_cap_ratio", 0)
@@ -4831,7 +7160,7 @@ def build_manipulation_timeline(
     events.append({
         "phase": "Volume anomaly",
         "status": "active" if volume_ratio >= 15 else "forming",
-        "tone": "emerald" if signal_type == "pump" else "rose",
+        "tone": "emerald" if resolved_direction == "pump" else "rose",
         "detail": f"Volume/market-cap ratio is {volume_ratio:.2f}%, which is {'abnormal' if volume_ratio >= 15 else 'building'} for this setup.",
     })
 
@@ -4858,8 +7187,9 @@ def build_manipulation_timeline(
             "detail": f"Fear & Greed is {fear_greed.get('value', 50)}/100 ({fear_greed.get('classification', 'Neutral')}).",
         })
 
+    risk_metric_label = manipulation_profile.get("risk_metric_label", "Reversal Risk" if resolved_direction == "pump" else "Dump Risk")
     events.append({
-        "phase": "Dump risk",
+        "phase": risk_metric_label,
         "status": "watch",
         "tone": "red" if dump_risk >= 70 else "orange" if dump_risk >= 50 else "slate",
         "detail": f"Estimated fast-unwind risk is {dump_risk}/100. This is where late entries usually get trapped.",
@@ -5004,16 +7334,37 @@ async def build_coin_case_replay(symbol: str, limit: int = 10) -> List[dict]:
             if (signal.get("symbol") or "").upper() != symbol:
                 continue
             profile = signal.get("manipulation_profile") or {}
+            direction_audit = signal.get("direction_audit") or build_direction_audit(
+                symbol=(signal.get("symbol") or "").upper(),
+                price_change_1h=signal.get("price_change_1h") or 0,
+                price_change_24h=signal.get("price_change_24h") or 0,
+                price_change_7d=signal.get("price_change_7d") or 0,
+                volume_24h=signal.get("volume_24h") or 0,
+                market_cap=signal.get("market_cap") or 0,
+                signal_type_hint=signal.get("signal_type"),
+                signal_strength_hint=signal.get("signal_strength") or 0,
+                pump_strength=signal.get("signal_strength") or 0 if signal.get("signal_type") == "pump" else 0,
+                dump_strength=signal.get("signal_strength") or 0 if signal.get("signal_type") == "dump" else 0,
+                is_trending=bool(signal.get("is_trending")),
+            )
+            resolved_signal_type = direction_audit.get("resolved_direction") or signal.get("signal_type")
+            normalized_stage = normalize_stage_for_direction(
+                profile.get("stage", "active"),
+                resolved_signal_type,
+                direction_audit.get("transition_state"),
+            )
             replay.append({
                 "timestamp": timestamp,
-                "signal_type": signal.get("signal_type"),
+                "signal_type": resolved_signal_type,
+                "stored_signal_type": signal.get("signal_type"),
                 "signal_strength": signal.get("signal_strength", 0),
                 "price_change_1h": signal.get("price_change_1h", 0),
                 "price_change_24h": signal.get("price_change_24h", 0),
-                "stage": profile.get("stage", "active"),
+                "stage": normalized_stage,
                 "manipulation_score": profile.get("manipulation_score", 0),
                 "dump_risk_score": profile.get("dump_risk_score", 0),
                 "telegram_mentions": profile.get("telegram_mentions", 0),
+                "direction_audit": direction_audit,
                 "summary": profile.get("summary") or signal.get("reason", ""),
             })
             break
@@ -5030,10 +7381,27 @@ async def build_recent_case_replays(limit: int = 40) -> List[dict]:
         signals = (snap.get("pump_signals", []) or []) + (snap.get("dump_signals", []) or [])
         for signal in signals:
             profile = signal.get("manipulation_profile") or {}
+            direction_audit = signal.get("direction_audit") or build_direction_audit(
+                symbol=(signal.get("symbol") or "").upper(),
+                price_change_1h=signal.get("price_change_1h") or 0,
+                price_change_24h=signal.get("price_change_24h") or 0,
+                price_change_7d=signal.get("price_change_7d") or 0,
+                volume_24h=signal.get("volume_24h") or 0,
+                market_cap=signal.get("market_cap") or 0,
+                signal_type_hint=signal.get("signal_type"),
+                signal_strength_hint=signal.get("signal_strength") or 0,
+                pump_strength=signal.get("signal_strength") or 0 if signal.get("signal_type") == "pump" else 0,
+                dump_strength=signal.get("signal_strength") or 0 if signal.get("signal_type") == "dump" else 0,
+                is_trending=bool(signal.get("is_trending")),
+            )
             if not signal.get("symbol"):
                 continue
-            stage = profile.get("stage", "active")
-            signal_type = signal.get("signal_type", "pump")
+            signal_type = direction_audit.get("resolved_direction") or signal.get("signal_type", "pump")
+            stage = normalize_stage_for_direction(
+                profile.get("stage", "active"),
+                signal_type,
+                direction_audit.get("transition_state"),
+            )
             early_score = int(profile.get("early_entry_score") or 0)
             manipulation_score = int(profile.get("manipulation_score") or 0)
             dump_risk_score = int(profile.get("dump_risk_score") or 0)
@@ -5082,10 +7450,11 @@ async def build_recent_case_replays(limit: int = 40) -> List[dict]:
                 "manipulation_score": manipulation_score,
                 "dump_risk_score": dump_risk_score,
                 "telegram_mentions": telegram_mentions,
-                "replay_label": "Pump build" if signal.get("signal_type") == "pump" else "Unwind",
+                "replay_label": "Pump build" if signal_type == "pump" else "Unwind",
                 "replay_type": replay_type,
                 "action": action,
                 "evidence": evidence[:5],
+                "direction_audit": direction_audit,
                 "summary": profile.get("summary") or signal.get("reason", ""),
             })
             if len(replay) >= limit:
@@ -5101,9 +7470,22 @@ def build_coin_trend_conclusion(
     volume_24h: float,
     market_cap: float,
     signal_strength: float,
+    direction_audit: Optional[dict] = None,
 ) -> str:
     volume_ratio = (volume_24h / market_cap * 100) if market_cap else 0
-    if signal_type == "pump":
+    resolved_direction = (direction_audit or {}).get("resolved_direction", signal_type)
+    transition_state = (direction_audit or {}).get("transition_state", "bullish_continuation" if resolved_direction == "pump" else "bearish_breakdown")
+    if resolved_direction == "pump":
+        if transition_state == "bullish_reversal":
+            return (
+                f"{symbol} is trying to pivot bullish after prior weakness, but this still looks like a reversal attempt rather than a fully confirmed uptrend. "
+                f"To validate a real pump thesis, the next hourly sequence needs to keep printing upside follow-through with volume still supportive."
+            )
+        if transition_state == "bullish_pullback":
+            return (
+                f"{symbol} still leans bullish overall, but the current read looks more like a pullback inside an uptrend than a fresh breakout from the base. "
+                f"If buyers keep defending the pullback and turnover stays firm, the upside continuation thesis remains intact."
+            )
         if price_change_1h > 0 and price_change_24h > 0 and volume_ratio >= 20:
             return (
                 f"{symbol} remains in a constructive short-term uptrend, with both hourly and daily momentum aligned and turnover still supportive. "
@@ -5112,6 +7494,11 @@ def build_coin_trend_conclusion(
         return (
             f"{symbol} still has a bullish signal, but the setup needs stronger follow-through to confirm a clean continuation. "
             f"Watch whether volume holds and whether the next hourly candles keep building above the recent move."
+        )
+    if transition_state == "dead_cat_bounce":
+        return (
+            f"{symbol} still resolves bearish even though there may be a short-lived bounce on the smallest window. "
+            f"With daily structure already broken, this reads more like a dead-cat bounce inside a dump than a true bullish reversal."
         )
     if price_change_1h < 0 and price_change_24h < 0 and volume_ratio >= 20:
         return (
@@ -5126,8 +7513,42 @@ def build_coin_trend_conclusion(
 def get_coin_exchanges(symbol: str, coin_id: str, platform: Optional[str] = None, contract_address: Optional[str] = None) -> List[dict]:
     return build_market_venues(symbol, coin_id, platform, contract_address)
 
+async def build_coin_pump_engine_payload(platform_id: Optional[str], contract_address: Optional[str]) -> dict:
+    if not platform_id or not contract_address:
+        return {
+            "available": False,
+            "reason": "missing_contract_context",
+            "message": "Pump engine needs both platform_id and contract_address.",
+        }
+
+    try:
+        pipeline = get_pump_engine_pipeline()
+        analysis = await pipeline.run_from_token(
+            chain=platform_id,
+            token_address=contract_address,
+            use_ai_judge=True,
+        )
+        return {
+            "available": True,
+            "analysis": analysis,
+        }
+    except PumpEngineError as exc:
+        logger.info("Pump engine unavailable for %s/%s: %s", platform_id, contract_address, exc.code)
+        return {
+            "available": False,
+            "reason": exc.code,
+            "message": exc.message,
+        }
+    except Exception as exc:
+        logger.warning("Pump engine integration error for %s/%s: %s", platform_id, contract_address, exc)
+        return {
+            "available": False,
+            "reason": "PUMP_ENGINE_INTERNAL_ERROR",
+            "message": "Pump engine could not analyze this asset right now.",
+        }
+
 @app.get("/api/crypto/coin/{symbol}")
-async def get_coin_detail(symbol: str, type: str = "pump", refresh: bool = False, user=Depends(require_active_subscription)):
+async def get_coin_detail(symbol: str, type: str = "pump", refresh: bool = False):
     """Get detailed coin data with AI analysis"""
     symbol = symbol.upper()
     
@@ -5143,25 +7564,32 @@ async def get_coin_detail(symbol: str, type: str = "pump", refresh: bool = False
     
     snapshot_ts = snapshot.get("timestamp") if snapshot else None
     snapshot_key = snapshot_ts.isoformat() if isinstance(snapshot_ts, datetime) else str(snapshot_ts)
-    detail_cache_key = f"{symbol}::{type}::{snapshot_key}"
+    detail_cache_key = f"{symbol}::{snapshot_key}"
     if not refresh:
         cached_detail = get_memory_cache(COIN_DETAIL_CACHE, detail_cache_key, ttl_seconds=180)
         if cached_detail is not None:
-            return api_ok(cached_detail)
+            cached_exchanges = cached_detail.get("exchanges") or []
+            cached_preferred_venue = cached_detail.get("preferred_venue") or ((cached_detail.get("decision_engine") or {}).get("preferred_venue"))
+            if cached_exchanges or cached_preferred_venue:
+                return api_ok(cached_detail)
 
     # Get CoinGecko market data
     market_data = {}
     try:
         preferred_name = signal.get("name") if signal else None
-        coin_id = resolve_coingecko_coin_id(symbol, preferred_name=preferred_name)
-        market_cache_key = f"{coin_id or symbol.lower()}::market"
+        resolved_coin_id = (
+            market_data.get("id")
+            or (signal.get("id") if signal else None)
+            or resolve_coingecko_coin_id(symbol, preferred_name=preferred_name)
+        )
+        market_cache_key = f"{resolved_coin_id or symbol.lower()}::market"
         cached_market = None if refresh else get_memory_cache(COIN_MARKET_CACHE, market_cache_key, ttl_seconds=90)
         if cached_market is not None:
             market_data = cached_market
         else:
             market_url = "https://api.coingecko.com/api/v3/coins/markets"
             mr = requests.get(market_url, params={
-                "vs_currency": "usd", "ids": coin_id,
+                "vs_currency": "usd", "ids": resolved_coin_id,
                 "price_change_percentage": "1h,24h,7d"
             }, headers=CG_HEADERS, timeout=15)
             if mr.status_code == 200 and mr.json():
@@ -5177,7 +7605,7 @@ async def get_coin_detail(symbol: str, type: str = "pump", refresh: bool = False
     volume_24h = market_data.get("total_volume") or (signal.get("volume_24h") if signal else 0) or 0
     market_cap = market_data.get("market_cap") or 0
     image = market_data.get("image") or (signal.get("image") if signal else "")
-    coin_id = market_data.get("id") or symbol.lower()
+    coin_id = market_data.get("id") or (signal.get("id") if signal else None) or resolved_coin_id or symbol.lower()
     
     # VALIDATION: If no valid data found, return 404
     if price <= 0 and not signal:
@@ -5221,17 +7649,54 @@ async def get_coin_detail(symbol: str, type: str = "pump", refresh: bool = False
         "warnings": [],
         "source": "CoinGecko",
     }
-    holder_distribution, goplus_security, goplus_rugpull, exchanges = await asyncio.gather(
+    holder_distribution, goplus_security, goplus_rugpull, exchanges, pump_engine = await asyncio.gather(
         asyncio.to_thread(get_holder_distribution, platform_id, contract_address),
         asyncio.to_thread(get_goplus_security, platform_id, contract_address),
         asyncio.to_thread(get_goplus_rugpull, platform_id, contract_address),
         asyncio.to_thread(get_coin_exchanges, symbol, coin_id, platform_id, contract_address),
+        build_coin_pump_engine_payload(platform_id, contract_address),
     )
     wallet_concentration = build_holder_concentration_profile(holder_distribution, goplus_security)
     wallet_cluster_intelligence = build_wallet_cluster_intelligence(holder_distribution, goplus_security)
     contract_risk = build_contract_risk_profile(platform_id, contract_address, goplus_security, goplus_rugpull)
+    asset_identity = build_asset_identity_profile(
+        symbol=symbol,
+        coin_id=coin_id,
+        name=market_data.get("name") or (signal.get("name") if signal else symbol),
+        market_cap=market_cap,
+        details=extended_details,
+        venues=exchanges,
+    )
     telegram_stats_map = await get_recent_telegram_signal_map(hours=24)
     telegram_stats = telegram_stats_map.get(symbol, {})
+    requested_signal_type = type
+    stored_signal_type = (signal.get("signal_type") if signal else None) or None
+    current_direction_audit = build_direction_audit(
+        symbol=symbol,
+        price_change_1h=price_change_1h,
+        price_change_24h=price_change_24h,
+        price_change_7d=price_change_7d,
+        volume_24h=volume_24h,
+        market_cap=market_cap,
+        signal_type_hint=stored_signal_type or requested_signal_type,
+        signal_strength_hint=signal.get("signal_strength", 0) if signal else 0,
+        pump_strength=signal.get("signal_strength", 0) if signal and stored_signal_type == "pump" else 0,
+        dump_strength=signal.get("signal_strength", 0) if signal and stored_signal_type == "dump" else 0,
+        is_trending=bool(signal.get("is_trending")) if signal else False,
+    )
+    resolved_signal_type = current_direction_audit.get("resolved_direction", stored_signal_type or requested_signal_type)
+    if signal and stored_signal_type and resolved_signal_type != stored_signal_type:
+        logger.info(
+            "Coin detail direction flip for %s: stored=%s resolved=%s requested=%s 1h=%+.2f 24h=%+.2f 7d=%+.2f transition=%s",
+            symbol,
+            stored_signal_type,
+            resolved_signal_type,
+            requested_signal_type,
+            current_direction_audit.get("price_change_1h", 0.0),
+            current_direction_audit.get("price_change_24h", 0.0),
+            current_direction_audit.get("price_change_7d", 0.0),
+            current_direction_audit.get("transition_state", "unknown"),
+        )
     
     analysis_sections: List[dict] = []
     ai_analysis = ""
@@ -5239,7 +7704,7 @@ async def get_coin_detail(symbol: str, type: str = "pump", refresh: bool = False
     if signal:
         analysis_sections = build_coin_analysis_sections(
             symbol=symbol,
-            signal_type=type,
+            signal_type=resolved_signal_type,
             price=price,
             price_change_1h=price_change_1h,
             price_change_24h=price_change_24h,
@@ -5252,16 +7717,18 @@ async def get_coin_detail(symbol: str, type: str = "pump", refresh: bool = False
             reason=signal.get("reason", ""),
             social_volume=signal.get("social_volume", 0) or 0,
             galaxy_score=signal.get("galaxy_score", 0) or 0,
+            direction_audit=current_direction_audit,
         )
         ai_analysis = "\n\n".join(section["body"] for section in analysis_sections)
         trend_conclusion = build_coin_trend_conclusion(
-            signal_type=type,
+            signal_type=resolved_signal_type,
             symbol=symbol,
             price_change_1h=price_change_1h,
             price_change_24h=price_change_24h,
             volume_24h=volume_24h,
             market_cap=market_cap,
             signal_strength=signal.get("signal_strength", 0),
+            direction_audit=current_direction_audit,
         )
         if GEMINI_API_KEY and not looks_like_placeholder(GEMINI_API_KEY, "GEMINI_API_KEY"):
             try:
@@ -5273,7 +7740,7 @@ async def get_coin_detail(symbol: str, type: str = "pump", refresh: bool = False
 Do not include Romanian or any bilingual output.
 
 Coin: {symbol}
-Signal type: {type}
+Signal type: {resolved_signal_type}
 Base analysis:
 {ai_analysis}
 
@@ -5322,69 +7789,92 @@ Respond with JSON:
         ai_analysis = "\n\n".join(section["body"] for section in analysis_sections)
         trend_conclusion = "There is no live signal confirmation yet, so this is a watchlist asset rather than an actionable setup right now."
     
-    decision_engine = signal.get("decision_engine") if signal else None
-    if not decision_engine:
-        decision_engine = build_signal_execution_plan(
-            signal_type=type,
-            symbol=symbol,
-            price=price,
-            price_change_1h=price_change_1h,
-            price_change_24h=price_change_24h,
-            price_change_7d=price_change_7d,
-            volume_24h=volume_24h,
-            market_cap=market_cap,
-            signal_strength=signal.get("signal_strength", 0) if signal else 0,
-            confidence=signal.get("confidence", "medium") if signal else "medium",
-            risk_level=signal.get("risk_level", "medium") if signal else "medium",
-            venues=exchanges,
-        )
-    manipulation_profile = signal.get("manipulation_profile") if signal else None
-    if not manipulation_profile:
-        manipulation_profile = build_manipulation_profile(
-            signal_type=type,
-            symbol=symbol,
-            price_change_1h=price_change_1h,
-            price_change_24h=price_change_24h,
-            price_change_7d=price_change_7d,
-            volume_24h=volume_24h,
-            market_cap=market_cap,
-            signal_strength=signal.get("signal_strength", 0) if signal else 0,
-            risk_level=signal.get("risk_level", "medium") if signal else "medium",
-            is_trending=bool(signal.get("is_trending")) if signal else False,
-            social_volume=signal.get("social_volume", 0) if signal else 0,
-            sentiment=signal.get("sentiment", 0) if signal else 0,
-            galaxy_score=signal.get("galaxy_score", 0) if signal else 0,
-            decision_engine=decision_engine,
-            telegram_stats=telegram_stats,
-            derivatives_data=derivatives_data,
-            tokenomics=tokenomics,
-            wallet_concentration=wallet_concentration,
-            contract_risk=contract_risk,
-        )
-    manipulation_timeline = signal.get("manipulation_timeline") if signal else None
-    if not manipulation_timeline:
-        manipulation_timeline = build_manipulation_timeline(
-            symbol=symbol,
-            signal_type=type,
-            manipulation_profile=manipulation_profile,
-            decision_engine=decision_engine,
-            fear_greed=snapshot.get("fear_greed") if snapshot else None,
-            is_trending=bool(signal.get("is_trending")) if signal else False,
-            social_volume=signal.get("social_volume", 0) if signal else 0,
-            galaxy_score=signal.get("galaxy_score", 0) if signal else 0,
-        )
-    cross_platform = signal.get("cross_platform_consensus") if signal else None
-    if not cross_platform:
-        cross_platform = build_coin_cross_platform_consensus(
-            symbol=symbol,
-            signal_type=type,
-            signal_strength=signal.get("signal_strength", 0) if signal else 0,
-            manipulation_profile=manipulation_profile,
-            decision_engine=decision_engine,
-            lunar_topic=lunarcrush_topic,
-            lunar_creators=lunarcrush_creators,
-            is_trending=bool(signal.get("is_trending")) if signal else False,
-        )
+    decision_engine = build_signal_execution_plan(
+        signal_type=resolved_signal_type,
+        symbol=symbol,
+        price=price,
+        price_change_1h=price_change_1h,
+        price_change_24h=price_change_24h,
+        price_change_7d=price_change_7d,
+        volume_24h=volume_24h,
+        market_cap=market_cap,
+        signal_strength=signal.get("signal_strength", 0) if signal else 0,
+        confidence=signal.get("confidence", "medium") if signal else "medium",
+        risk_level=signal.get("risk_level", "medium") if signal else "medium",
+        venues=exchanges,
+        direction_audit=current_direction_audit,
+    )
+    manipulation_profile = build_manipulation_profile(
+        signal_type=resolved_signal_type,
+        symbol=symbol,
+        price_change_1h=price_change_1h,
+        price_change_24h=price_change_24h,
+        price_change_7d=price_change_7d,
+        volume_24h=volume_24h,
+        market_cap=market_cap,
+        signal_strength=signal.get("signal_strength", 0) if signal else 0,
+        risk_level=signal.get("risk_level", "medium") if signal else "medium",
+        is_trending=bool(signal.get("is_trending")) if signal else False,
+        social_volume=signal.get("social_volume", 0) if signal else 0,
+        sentiment=signal.get("sentiment", 0) if signal else 0,
+        galaxy_score=signal.get("galaxy_score", 0) if signal else 0,
+        decision_engine=decision_engine,
+        telegram_stats=telegram_stats,
+        derivatives_data=derivatives_data,
+        tokenomics=tokenomics,
+        wallet_concentration=wallet_concentration,
+        contract_risk=contract_risk,
+        direction_audit=current_direction_audit,
+    )
+    rugpull_profile = build_rugpull_profile(
+        asset_identity=asset_identity,
+        tokenomics=tokenomics,
+        wallet_cluster_intelligence=wallet_cluster_intelligence,
+        contract_risk=contract_risk,
+        venues=exchanges,
+        manipulation_profile=manipulation_profile,
+    )
+    manipulation_timeline = build_manipulation_timeline(
+        symbol=symbol,
+        signal_type=resolved_signal_type,
+        manipulation_profile=manipulation_profile,
+        decision_engine=decision_engine,
+        fear_greed=snapshot.get("fear_greed") if snapshot else None,
+        is_trending=bool(signal.get("is_trending")) if signal else False,
+        social_volume=signal.get("social_volume", 0) if signal else 0,
+        galaxy_score=signal.get("galaxy_score", 0) if signal else 0,
+    )
+    cross_platform = build_coin_cross_platform_consensus(
+        symbol=symbol,
+        signal_type=resolved_signal_type,
+        signal_strength=signal.get("signal_strength", 0) if signal else 0,
+        manipulation_profile=manipulation_profile,
+        decision_engine=decision_engine,
+        lunar_topic=lunarcrush_topic,
+        lunar_creators=lunarcrush_creators,
+        is_trending=bool(signal.get("is_trending")) if signal else False,
+    )
+    signal_sources = (signal.get("signal_sources") if signal else None) or build_signal_source_stack(
+        symbol=symbol,
+        price_change_1h=price_change_1h,
+        price_change_24h=price_change_24h,
+        vol_mcap_ratio=(volume_24h / market_cap * 100) if market_cap else 0,
+        is_trending=bool(signal.get("is_trending")) if signal else False,
+        telegram_mentions=telegram_stats.get("mentions", 0) or 0,
+        telegram_sources=telegram_stats.get("unique_sources", 0) or telegram_stats.get("telegram_sources", 0) or 0,
+        bullish_mentions=telegram_stats.get("bullish_mentions", 0) or 0,
+        bearish_mentions=telegram_stats.get("bearish_mentions", 0) or 0,
+        telegram_avg_score=telegram_stats.get("avg_score", 0) or 0,
+        social_volume=signal.get("social_volume", 0) if signal else 0,
+        galaxy_score=signal.get("galaxy_score", 0) if signal else 0,
+        sentiment=signal.get("sentiment", 0) if signal else 0,
+        lunar_mentions=(lunarcrush_topic or {}).get("mentions_24h", 0) or 0,
+        lunar_creators=(lunarcrush_topic or {}).get("creators_24h", 0) or 0,
+        lunar_interactions=(lunarcrush_topic or {}).get("engagements_24h", 0) or 0,
+        lunar_dominance=(lunarcrush_topic or {}).get("social_dominance_pct", 0) or 0,
+        venue_count=decision_engine.get("venue_count", 0) or len(exchanges),
+        preferred_venue=decision_engine.get("preferred_venue"),
+    )
     payload = {
         "symbol": symbol,
         "name": market_data.get("name") or (signal.get("name") if signal else symbol),
@@ -5395,16 +7885,21 @@ Respond with JSON:
         "price_change_7d": price_change_7d,
         "volume_24h": volume_24h,
         "market_cap": market_cap,
-        "signal_type": type,
+        "signal_type": resolved_signal_type,
+        "requested_signal_type": requested_signal_type,
+        "stored_signal_type": stored_signal_type,
         "signal_strength": signal.get("signal_strength", 0) if signal else 0,
         "reason": signal.get("reason", "") if signal else "",
         "confidence": signal.get("confidence", "medium") if signal else "medium",
         "risk_level": signal.get("risk_level", "medium") if signal else "medium",
+        "direction_audit": current_direction_audit,
         "ai_analysis": ai_analysis,
         "analysis_sections": analysis_sections,
         "trend_conclusion": trend_conclusion,
         "decision_engine": decision_engine,
         "preferred_venue": decision_engine.get("preferred_venue"),
+        "signal_sources": signal_sources,
+        "source_summary": signal_sources.get("summary"),
         "manipulation_profile": manipulation_profile,
         "manipulation_timeline": manipulation_timeline,
         "cross_platform_consensus": cross_platform,
@@ -5415,6 +7910,9 @@ Respond with JSON:
         "wallet_concentration": wallet_concentration,
         "wallet_cluster_intelligence": wallet_cluster_intelligence,
         "contract_risk": contract_risk,
+        "pump_engine": pump_engine,
+        "asset_identity": asset_identity,
+        "rugpull_profile": rugpull_profile,
         "lunarcrush_topic": lunarcrush_topic,
         "lunarcrush_creators": lunarcrush_creators,
         "platform_id": platform_id,
@@ -5464,9 +7962,11 @@ TELEGRAM_TRADE_KEYWORDS = (
     "entry", "entries", "buy zone", "accumulate", "target", "targets", "take profit", "tp1", "tp2", "tp3",
     "stop loss", "sl", "breakout", "breakdown", "resistance", "support", "spot entry",
     "leverage", "long", "short", "open long", "open short", "risk reward", "rr",
+    "ape", "scalp", "send", "flush", "send it", "watchlist",
 )
 TELEGRAM_DIRECTION_KEYWORDS = (
     "pump", "dump", "bullish", "bearish", "long", "short", "buy", "sell", "moon", "rug",
+    "ape", "send", "flush", "nuke",
 )
 
 class TelegramSourceUpsertRequest(BaseModel):
@@ -5741,6 +8241,8 @@ def parse_telegram_signal_message(message_text: str) -> dict:
         symbol_candidates = [match[0] for match in re.findall(r"\b([A-Z0-9]{2,15})/(USDT|USD|BTC|ETH|SOL|BNB)\b", upper)]
     if not symbol_candidates:
         symbol_candidates = re.findall(r"#([A-Z0-9]{2,15})", upper)
+    if not symbol_candidates:
+        symbol_candidates = re.findall(r"\b[A-Z][A-Z0-9]{1,14}\b", upper)
     blacklist = {"USDT", "USD", "BTC", "ETH", "SOL", "BNB", "LONG", "SHORT", "ENTRY", "TARGET", "STOP", "BUY", "SELL"}
     for candidate in symbol_candidates:
         if candidate not in blacklist:
@@ -5786,6 +8288,20 @@ def parse_telegram_signal_message(message_text: str) -> dict:
     spam_hits = sorted({phrase for phrase in TELEGRAM_SPAM_PHRASES if phrase in lower})
     trade_hits = sorted({phrase for phrase in TELEGRAM_TRADE_KEYWORDS if phrase in lower})
     direction_hits = sorted({phrase for phrase in TELEGRAM_DIRECTION_KEYWORDS if phrase in lower})
+    short_call_detected = bool(
+        symbol and (
+            trade_hits or
+            direction_hits or
+            contract_address or
+            re.search(rf"\b{re.escape(symbol)}\b\s*(?:now|soon|spot|entry|breakout|breakdown|send|ape)\b", upper, re.IGNORECASE)
+        )
+    )
+    parser_confidence = min(
+        100,
+        parser_confidence +
+        (8 if short_call_detected and not entry_zone else 0) +
+        (5 if symbol and trade_hits and not target_values else 0)
+    )
 
     return {
         "symbol": symbol,
@@ -5799,9 +8315,10 @@ def parse_telegram_signal_message(message_text: str) -> dict:
         "spam_hits": spam_hits,
         "trade_hits": trade_hits,
         "direction_hits": direction_hits,
+        "short_call_detected": short_call_detected,
     }
 
-def should_store_telegram_signal(parsed: dict) -> bool:
+def explain_telegram_signal_rejection(parsed: dict) -> List[str]:
     symbol = (parsed.get("symbol") or "").upper()
     contract_address = parsed.get("contract_address")
     parser_confidence = float(parsed.get("parser_confidence") or 0)
@@ -5811,27 +8328,69 @@ def should_store_telegram_signal(parsed: dict) -> bool:
     entry_zone = parsed.get("entry_zone")
     stop_loss = parsed.get("stop_loss")
     targets = parsed.get("targets") or []
+    short_call_detected = bool(parsed.get("short_call_detected"))
+    reasons: List[str] = []
     if not symbol and not contract_address:
-        return False
+        reasons.append("missing_symbol_or_contract")
     if symbol and symbol.isdigit():
-        return False
+        reasons.append("numeric_symbol_candidate")
     if symbol and len(symbol) < 2:
-        return False
+        reasons.append("symbol_too_short")
     numeric_targets = [target for target in targets if isinstance(target, (int, float))]
     has_numeric_plan = bool(entry_zone or stop_loss or numeric_targets)
     has_trade_structure = bool(contract_address or has_numeric_plan or trade_hits)
     has_direction = bool(direction_hits)
+    has_short_call = bool(symbol and short_call_detected and (trade_hits or direction_hits))
     has_contract_play = bool(contract_address and has_direction)
     has_structured_plan = bool(symbol and has_direction and has_numeric_plan)
     if spam_hits and not has_contract_play:
-        return False
-    if not has_trade_structure and not has_direction:
-        return False
-    if not has_contract_play and not has_structured_plan:
-        return False
-    if not has_contract_play and parser_confidence < 45:
-        return False
-    return True
+        reasons.append("spam_like_message")
+    if not has_trade_structure and not has_direction and not has_short_call:
+        reasons.append("missing_trade_or_direction_structure")
+    if not has_contract_play and not has_structured_plan and not has_short_call:
+        reasons.append("missing_contract_or_structured_plan")
+    if not has_contract_play and not has_short_call and parser_confidence < 45:
+        reasons.append("parser_confidence_below_threshold")
+    return reasons
+
+def should_store_telegram_signal(parsed: dict) -> bool:
+    return len(explain_telegram_signal_rejection(parsed)) == 0
+
+async def record_telegram_signal_rejection(
+    *,
+    source: Optional[dict],
+    message_text: str,
+    parsed: Optional[dict],
+    reasons: List[str],
+    stage: str,
+    message_id: Optional[str] = None,
+    message_url: Optional[str] = None,
+    posted_at: Optional[datetime] = None,
+) -> None:
+    try:
+        payload = parsed or {}
+        await db.telegram_signal_rejections.insert_one({
+            "source_id": str(source["_id"]) if source and source.get("_id") else None,
+            "source_name": source.get("source_name") if source else None,
+            "source_handle": source.get("source_handle") if source else None,
+            "message_id": message_id,
+            "message_url": message_url,
+            "message_text": message_text,
+            "posted_at": posted_at or datetime.now(timezone.utc),
+            "created_at": datetime.now(timezone.utc),
+            "stage": stage,
+            "symbol": payload.get("symbol"),
+            "direction": payload.get("direction"),
+            "contract_address": payload.get("contract_address"),
+            "parser_confidence": payload.get("parser_confidence", 0),
+            "trade_hits": payload.get("trade_hits", []),
+            "direction_hits": payload.get("direction_hits", []),
+            "spam_hits": payload.get("spam_hits", []),
+            "short_call_detected": bool(payload.get("short_call_detected")),
+            "reasons": reasons,
+        })
+    except Exception as e:
+        logger.warning("Failed to persist Telegram rejection audit: %s", e)
 
 async def find_latest_pumpradar_signal(symbol: Optional[str]) -> Optional[dict]:
     if not symbol:
@@ -5896,12 +8455,15 @@ def derive_telegram_source_profile(doc: dict) -> dict:
 
     noise_ratio = float(doc.get("noise_ratio", 0) or 0)
     structured_ratio = float(doc.get("structured_ratio", 0) or 0)
+    accuracy_1h = float(doc.get("accuracy_1h", 0) or 0)
     accuracy_4h = float(doc.get("accuracy_4h", 0) or 0)
     avg_move_4h_abs = float(doc.get("avg_move_4h_abs", 0) or 0)
 
     if accuracy_4h >= 65 and noise_ratio <= 25 and verified_count >= 6:
         quality_badge = "High Signal Quality"
     elif accuracy_4h >= 52 and avg_move_4h_abs >= 3 and verified_count >= 4:
+        quality_badge = "Fast but Risky"
+    elif source_score >= 55 and verified_count >= 8 and accuracy_1h >= 70:
         quality_badge = "Fast but Risky"
     elif noise_ratio >= 45 or structured_ratio <= 45:
         quality_badge = "Mostly Noise"
@@ -5986,6 +8548,7 @@ def serialize_telegram_signal(doc: dict) -> dict:
         "cross_source_count": doc.get("cross_source_count", 1),
         "source_score_at_ingest": doc.get("source_score_at_ingest", 50),
         "composite_score": doc.get("composite_score", 0),
+        "quality_judge": doc.get("quality_judge"),
         "status": doc.get("status", "pending"),
         "message_text": doc.get("message_text"),
         "message_url": doc.get("message_url"),
@@ -6136,6 +8699,105 @@ async def recalculate_telegram_source_metrics(source_id: str) -> Optional[dict]:
     await db.telegram_sources.update_one({"_id": ObjectId(source_id)}, {"$set": update})
     return await db.telegram_sources.find_one({"_id": ObjectId(source_id)})
 
+
+def classify_telegram_message_quality(message_text: str, symbol: Optional[str] = None, source_score: float = 0) -> dict:
+    text = (message_text or "").strip()
+    low = text.lower()
+    sym = (symbol or "").strip().upper()
+
+    trade_terms = (
+        "entry", "entries", "target", "targets", "tp1", "tp2", "tp3", "take profit",
+        "stop loss", "sl", "long", "short", "buy zone", "sell zone", "breakout",
+        "breakdown", "support", "resistance", "leverage", "scalp", "spot entry",
+    )
+    promo_terms = (
+        "reward", "rewards", "giveaway", "airdrop", "claim", "join us", "event period",
+        "how it works", "how to participate", "buy now", "validity duration", "live session",
+        "rights zone", "supported wallet", "trust wallet", "metamask", "cex wallet",
+        "dex wallet", "official", "community", "announcement",
+    )
+    proof_terms = (
+        "profit", "accurate", "premium call", "vip proof", "vip", "proof",
+        "consistency", "contact @", "target achieved", "targets achieved",
+        "all target", "all targets", "target -", "freetrail", "free trial",
+    )
+
+    false_symbols = {
+        "FROM", "MAKE", "LIVE", "MINI", "PUMP", "DUMP", "PROFIT", "TARGET",
+        "ENTRY", "SIGNAL", "CALL", "WALLET", "BUY", "SELL", "LONG", "SHORT",
+        "PLEASE", "HOW", "OUI", "IT", "ONCE", "UPDATE", "WILL", "SINCE",
+        "CHECK", "HELLO", "BONJOUR", "VOUS", "POUR", "OKAY", "OK",
+        "IMPORTANT", "QUICK", "SCAM",
+    }
+
+    trade_hits = sum(1 for term in trade_terms if term in low)
+    promo_hits = sum(1 for term in promo_terms if term in low)
+    proof_hits = sum(1 for term in proof_terms if term in low)
+    locked_vip = ("🔐" in text) or ("details available on vip" in low) or ("vip channel" in low and "entry" in low)
+
+    label = "unknown"
+    is_trade_signal = False
+    confidence = 35
+    reasons = []
+
+    if sym in false_symbols:
+        reasons.append(f"symbol looks like common word/noise: {sym}")
+
+    if locked_vip:
+        label = "vip_locked_not_actionable"
+        is_trade_signal = False
+        confidence = 82
+        reasons.append("VIP-locked/redacted setup without actionable entry/SL/targets")
+
+    if trade_hits >= 2 and not locked_vip:
+        label = "possible_trade_signal"
+        is_trade_signal = True
+        confidence = 62
+        reasons.append(f"trade terms detected: {trade_hits}")
+
+    if trade_hits >= 3 and sym not in false_symbols and not locked_vip:
+        label = "real_trade_signal"
+        is_trade_signal = True
+        confidence = 78
+        reasons.append("structured trade setup detected")
+
+    actionable_terms = (
+        "entry", "entries", "buy zone", "sell zone", "stop loss", "sl",
+        "long", "short", "open long", "open short", "leverage", "spot entry",
+    )
+    actionable_hits = sum(1 for term in actionable_terms if term in low)
+
+    if proof_hits >= 2 and actionable_hits == 0:
+        label = "performance_proof_or_marketing"
+        is_trade_signal = False
+        confidence = 72
+        reasons.append("profit/proof marketing without actionable entry/SL setup")
+
+    if promo_hits >= 2 and trade_hits == 0:
+        label = "official_update_or_noise"
+        is_trade_signal = False
+        confidence = 72
+        reasons.append(f"promo/official terms detected: {promo_hits}")
+
+    if sym in false_symbols and trade_hits < 3:
+        label = "noise_false_symbol"
+        is_trade_signal = False
+        confidence = max(confidence, 75)
+        reasons.append("false ticker extraction likely")
+
+    if source_score >= 55 and is_trade_signal:
+        confidence = min(90, confidence + 8)
+        reasons.append("source has useful historical score")
+
+    return {
+        "label": label,
+        "is_trade_signal": is_trade_signal,
+        "confidence": confidence,
+        "reasons": reasons,
+        "classifier": "local_v1",
+    }
+
+
 async def ingest_telegram_signal_payload(
     *,
     source: dict,
@@ -6146,8 +8808,19 @@ async def ingest_telegram_signal_payload(
 ) -> dict:
     posted_at = posted_at or datetime.now(timezone.utc)
     parsed = parse_telegram_signal_message(message_text)
-    if not should_store_telegram_signal(parsed):
-        raise ValueError("Telegram message does not qualify as a structured signal")
+    reject_reasons = explain_telegram_signal_rejection(parsed)
+    if reject_reasons:
+        await record_telegram_signal_rejection(
+            source=source,
+            message_text=message_text,
+            parsed=parsed,
+            reasons=reject_reasons,
+            stage="parser_gate",
+            message_id=message_id,
+            message_url=message_url,
+            posted_at=posted_at,
+        )
+        raise ValueError(f"Telegram message rejected: {', '.join(reject_reasons)}")
     source_score = float(source.get("source_score", 50))
     market_alignment_score, latest_signal = await build_market_alignment(parsed.get("symbol"), parsed.get("direction") or "pump")
     reference_price = None
@@ -6168,6 +8841,11 @@ async def ingest_telegram_signal_payload(
     source_ids.add(str(source["_id"]))
     consensus_score = compute_consensus_score(len(source_ids))
     composite_score = compute_telegram_signal_score(source_score, parsed["parser_confidence"], market_alignment_score, consensus_score)
+    quality_judge = classify_telegram_message_quality(
+        message_text=message_text,
+        symbol=parsed.get("symbol"),
+        source_score=source_score,
+    )
 
     verification = {
         key: {
@@ -6204,6 +8882,7 @@ async def ingest_telegram_signal_payload(
         "cross_source_count": len(source_ids),
         "source_score_at_ingest": source_score,
         "composite_score": composite_score,
+        "quality_judge": quality_judge,
         "status": "pending",
         "verification": verification,
         "cluster_key": cluster_key,
@@ -6333,7 +9012,22 @@ async def handle_telegram_message_event(event):
         if not message_text:
             return
         parsed = parse_telegram_signal_message(message_text)
-        if not should_store_telegram_signal(parsed):
+        reject_reasons = explain_telegram_signal_rejection(parsed)
+        if reject_reasons:
+            message_url = f"https://t.me/{chat_username}/{event.id}" if chat_username else None
+            posted_at = event.date if isinstance(event.date, datetime) else datetime.now(timezone.utc)
+            if posted_at.tzinfo is None:
+                posted_at = posted_at.replace(tzinfo=timezone.utc)
+            await record_telegram_signal_rejection(
+                source=source,
+                message_text=message_text,
+                parsed=parsed,
+                reasons=reject_reasons,
+                stage="live_ingest_gate",
+                message_id=str(event.id),
+                message_url=message_url,
+                posted_at=posted_at,
+            )
             return
         message_url = f"https://t.me/{chat_username}/{event.id}" if chat_username else None
         posted_at = event.date if isinstance(event.date, datetime) else datetime.now(timezone.utc)
@@ -6353,7 +9047,21 @@ def build_telegram_consensus_payload(signals: List[dict], sources: List[dict], h
     symbol_map: Dict[str, dict] = {}
     bullish_mentions = 0
     bearish_mentions = 0
+    allowed_quality_labels = {"real_trade_signal", "possible_trade_signal"}
+
+    filtered_signals = []
+    ignored_by_quality = 0
     for signal in signals:
+        quality = signal.get("quality_judge") or {}
+        if quality and quality.get("label") not in allowed_quality_labels:
+            ignored_by_quality += 1
+            continue
+        if quality and quality.get("is_trade_signal") is False:
+            ignored_by_quality += 1
+            continue
+        filtered_signals.append(signal)
+
+    for signal in filtered_signals:
         symbol = (signal.get("symbol") or "").upper()
         if not symbol:
             continue
@@ -6436,7 +9144,9 @@ def build_telegram_consensus_payload(signals: List[dict], sources: List[dict], h
         "headline": headline,
         "hours": hours,
         "active_sources": active_source_names,
-        "signal_count": len(signals),
+        "signal_count": len(filtered_signals),
+        "raw_signal_count": len(signals),
+        "ignored_by_quality": ignored_by_quality,
         "bullish_mentions": bullish_mentions,
         "bearish_mentions": bearish_mentions,
         "hot_symbols": hot_symbols[:8],
@@ -6582,13 +9292,17 @@ async def admin_ingest_telegram_signal(req: TelegramSignalIngestRequest, admin=D
         source = await db.telegram_sources.find_one({"_id": ObjectId(req.source_id)})
     if not source:
         source = await upsert_telegram_source(req)
-    doc = await ingest_telegram_signal_payload(
-        source=source,
-        message_text=req.message_text,
-        message_id=req.message_id,
-        message_url=req.message_url,
-        posted_at=posted_at,
-    )
+    try:
+        doc = await ingest_telegram_signal_payload(
+            source=source,
+            message_text=req.message_text,
+            message_id=req.message_id,
+            message_url=req.message_url,
+            posted_at=posted_at,
+        )
+    except ValueError as e:
+        parsed = parse_telegram_signal_message(req.message_text)
+        raise HTTPException(status_code=400, detail=api_err(str(e), "TELEGRAM_SIGNAL_REJECTED"))
     parsed = parse_telegram_signal_message(req.message_text)
     return api_ok({"signal": serialize_telegram_signal(doc), "parser": parsed})
 
@@ -6631,6 +9345,10 @@ async def admin_recalculate_telegram(admin=Depends(require_admin)):
     for source in sources:
         await recalculate_telegram_source_metrics(str(source["_id"]))
     return api_ok({"message": "Telegram source scores recalculated"})
+
+@app.get("/api/admin/telegram/calibration")
+async def admin_telegram_calibration(hours: int = 72, admin=Depends(require_admin)):
+    return api_ok(await build_telegram_calibration_summary(hours))
 
 # ─────────────────────────────────────────────
 # ADMIN ENDPOINTS
