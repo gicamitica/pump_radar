@@ -66,3 +66,12 @@ backend/crypto_pump_engine/__pycache__/
 backend/crypto_pump_engine/*.bak
 backend/crypto_pump_engine/*.bak_*
 backend/crypto_pump_engine/*.stable_*
+*.bak
+*.bak.*
+*.bak-*
+*.bak2*
+*.backup
+*.backup_*
+*.old
+*.log.old_*
+*.stable_*

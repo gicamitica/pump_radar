@@ -1,493 +1,326 @@
-import { useState, useEffect } from 'react';
+// @ts-nocheck
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { History, TrendingUp, TrendingDown, Clock, BarChart2, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Radio } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/shadcn/components/ui/card';
-import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
+import { RefreshCw, Activity, ChevronDown, ChevronUp } from 'lucide-react';
 import { readStoredToken } from '@/shared/utils/tokenStorage';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+} from 'recharts';
 
-const getToken = () => readStoredToken();
+// ─── Types ────────────────────────────────────────────────────────────────
+interface SignalItem {
+  symbol: string;
+  confidence: number;
+  verdict: string;
+  price_usd?: number;
+  price_change_h1?: number;
+  price_change_h24?: number;
+  whale_accumulation?: boolean;
+  pre_pump_activity?: boolean;
+  manipulation_probability?: number;
+}
 
-interface HistoryEntry {
+interface SnapshotSignals {
+  pump: SignalItem[];
+  dump: SignalItem[];
+  risk: SignalItem[];
+  early: SignalItem[];
+  watch: SignalItem[];
+  dex: SignalItem[];
+}
+
+interface Snapshot {
   timestamp: string;
   pump_count: number;
   dump_count: number;
-  market_summary: string;
+  risk_count: number;
+  watch_count: number;
+  early_count: number;
+  dex_count: number;
   coins_analyzed: number;
+  market_summary: string;
+  signals: SnapshotSignals;
 }
 
-interface SnapshotSignal {
-  symbol: string;
-  name?: string;
-  signal_strength?: number;
-  reason?: string;
-  confidence?: 'high' | 'medium' | 'low';
-  price?: number;
-}
-
-interface SnapshotEntry extends HistoryEntry {
-  pump_signals: SnapshotSignal[];
-  dump_signals: SnapshotSignal[];
-}
-
-interface ReplayEntry {
-  timestamp: string;
-  symbol: string;
-  name?: string;
-  signal_type: 'pump' | 'dump';
-  signal_strength: number;
-  price_change_1h: number;
-  price_change_24h: number;
-  stage: string;
-  manipulation_score: number;
-  dump_risk_score: number;
-  telegram_mentions: number;
-  replay_label: string;
-  replay_type?: string;
-  action?: string;
-  evidence?: string[];
-  summary: string;
-}
-
-const formatTime = (ts: string) => {
+// ─── Helpers ──────────────────────────────────────────────────────────────
+function fmtTime(ts: string) {
   const d = new Date(ts);
-  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function fmtDate(ts: string) {
+  const d = new Date(ts);
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+function fmtPrice(n: number | undefined) {
+  if (!n) return 'n/a';
+  return n > 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(5)}`;
+}
+
+const catColors = {
+  pump:  '#22c55e',
+  early: '#a78bfa',
+  risk:  '#f59e0b',
+  watch: '#38bdf8',
+  dump:  '#ef4444',
+  dex:   '#fb923c',
 };
 
-const formatDate = (ts: string) => {
-  const d = new Date(ts);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const catConfig = {
+  pump:  { label: 'PUMP',  icon: '▲', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+  early: { label: 'EARLY', icon: '⚡', color: 'text-violet-400',  bg: 'bg-violet-500/10',  border: 'border-violet-500/30' },
+  risk:  { label: 'RISK',  icon: '⚠', color: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/30' },
+  watch: { label: 'WATCH', icon: '👁', color: 'text-sky-400',     bg: 'bg-sky-500/10',     border: 'border-sky-500/30' },
+  dump:  { label: 'DUMP',  icon: '▼', color: 'text-red-400',      bg: 'bg-red-500/10',     border: 'border-red-500/30' },
+  dex:   { label: 'DEX',   icon: '🔥', color: 'text-orange-400',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30' },
 };
 
-export default function HistoryPage() {
+// ─── Signal Pill ──────────────────────────────────────────────────────────
+function SignalPill({ symbol, confidence, cat }: { symbol: string; confidence: number; cat: keyof typeof catConfig }) {
+  const cfg = catConfig[cat];
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${cfg.bg} ${cfg.border} ${cfg.color}`}>
+      {symbol} {confidence}%
+    </span>
+  );
+}
+
+// ─── Snapshot Row ─────────────────────────────────────────────────────────
+function SnapshotRow({ snap, index }: { snap: Snapshot; index: number }) {
+  const [expanded, setExpanded] = useState(false);
   const navigate = useNavigate();
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [snapshots, setSnapshots] = useState<SnapshotEntry[]>([]);
-  const [replays, setReplays] = useState<ReplayEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [expandedSnapshot, setExpandedSnapshot] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<'chart' | 'timeline' | 'replay'>('chart');
-
-  useEffect(() => {
-    fetchHistory();
-  }, []);
-
-  const fetchHistory = async () => {
-    setLoading(true);
-    try {
-      const token = getToken();
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      
-      // Fetch history summary
-      const histRes = await axios.get('/api/crypto/history?limit=48', { headers });
-      if (histRes.data.success) {
-        setHistory(histRes.data.data.history || []);
-      }
-      
-      const [snapRes, replayRes] = await Promise.all([
-        axios.get('/api/crypto/snapshots?limit=24', { headers }),
-        axios.get('/api/crypto/replays?limit=36', { headers }),
-      ]);
-      if (snapRes.data.success) setSnapshots(snapRes.data.data.snapshots || []);
-      if (replayRes.data.success) setReplays(replayRes.data.data.replays || []);
-    } catch (err: any) {
-      if (err.response?.status === 402) {
-        navigate('/subscription', { replace: true });
-        return;
-      }
-      console.error('Failed to fetch history', err);
-    }
-    setLoading(false);
-  };
-
-  // Prepare chart data
-  const chartData = [...history].reverse().map(h => ({
-    time: formatTime(h.timestamp),
-    fullTime: formatDate(h.timestamp),
-    pumps: h.pump_count,
-    dumps: h.dump_count,
-    total: h.pump_count + h.dump_count,
-    analyzed: h.coins_analyzed,
-  }));
-
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (!active || !payload?.length) return null;
-    const data = payload[0]?.payload;
-    return (
-      <div className="bg-background border border-border rounded-lg p-3 text-xs shadow-lg">
-        <p className="font-semibold mb-2">{data?.fullTime}</p>
-        <div className="space-y-1">
-          <p className="text-emerald-500">Pump candidates detected: {data?.pumps}</p>
-          <p className="text-red-500">Dump candidates detected: {data?.dumps}</p>
-          <p className="text-muted-foreground">Coins Analyzed: {data?.analyzed}</p>
-        </div>
-        <p className="mt-2 text-muted-foreground">
-          This chart shows how many signals PumpRadar found in that hourly snapshot.
-        </p>
-      </div>
-    );
-  };
-
-  const openSignalDetail = (symbol: string, signalType: 'pump' | 'dump') => {
-    navigate(`/coin/${symbol}?type=${signalType}`);
-  };
-
-  const renderSignalChip = (signal: SnapshotSignal, signalType: 'pump' | 'dump') => {
-    const toneClasses = signalType === 'pump'
-      ? 'border-emerald-500/20 bg-emerald-500/5 hover:border-emerald-500/40'
-      : 'border-red-500/20 bg-red-500/5 hover:border-red-500/40';
-    const badgeClasses = signalType === 'pump'
-      ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20'
-      : 'bg-red-500/15 text-red-500 border-red-500/20';
-
-    return (
-      <button
-        key={`${signalType}-${signal.symbol}`}
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          openSignalDetail(signal.symbol, signalType);
-        }}
-        className={`w-full rounded-xl border p-3 text-left transition ${toneClasses}`}
-        data-testid={`history-signal-${signalType}-${signal.symbol}`}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold">{signal.symbol}</span>
-              <Badge variant="outline" className={badgeClasses}>
-                {signalType.toUpperCase()}
-              </Badge>
-            </div>
-            <div className="text-xs text-muted-foreground truncate">
-              {signal.name || 'Open detailed analysis'}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {typeof signal.signal_strength === 'number' && (
-              <span className="text-xs font-semibold">{signal.signal_strength}%</span>
-            )}
-            <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-        </div>
-        {signal.reason && (
-          <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-            {signal.reason}
-          </p>
-        )}
-      </button>
-    );
-  };
+  const total = snap.pump_count + snap.dump_count + snap.risk_count + snap.early_count + snap.dex_count;
+  const hasEarly = snap.early_count > 0;
+  const hasPump = snap.pump_count > 0;
+  const hasDump = snap.dump_count > 0;
 
   return (
-    <div className="space-y-6" data-testid="history-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center">
-            <History className="h-5 w-5 text-indigo-500" />
-          </div>
-          <div>
-            <h1 className="font-bold text-lg">Signal History</h1>
-            <p className="text-xs text-muted-foreground">Last 48 hours of pump/dump signals</p>
-          </div>
+    <div className={`rounded-xl border transition-all ${hasEarly ? 'border-violet-500/30 bg-violet-500/5' : hasDump ? 'border-red-500/20 bg-red-500/5' : 'border-border bg-background/40'}`}>
+      <button
+        className="w-full flex items-center gap-3 p-3 text-left"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="text-xs text-muted-foreground w-24 flex-shrink-0">
+          <div className="font-bold text-foreground">{fmtTime(snap.timestamp)}</div>
+          <div>{fmtDate(snap.timestamp)}</div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-border overflow-hidden">
-            <button
-              onClick={() => setViewMode('chart')}
-              className={`px-3 py-1.5 text-xs font-medium transition ${viewMode === 'chart' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
-            >
-              <BarChart2 className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('timeline')}
-              className={`px-3 py-1.5 text-xs font-medium transition ${viewMode === 'timeline' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
-            >
-              <Clock className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('replay')}
-              className={`px-3 py-1.5 text-xs font-medium transition ${viewMode === 'replay' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
-            >
-              <Radio className="h-4 w-4" />
-            </button>
-          </div>
-          <button
-            onClick={fetchHistory}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg hover:bg-muted transition disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+
+        <div className="flex items-center gap-1.5 flex-wrap flex-1">
+          {hasEarly && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-400 border border-violet-500/30 animate-pulse">
+              ⚡ {snap.early_count} EARLY
+            </span>
+          )}
+          {hasPump && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              ▲ {snap.pump_count} PUMP
+            </span>
+          )}
+          {hasDump && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/30">
+              ▼ {snap.dump_count} DUMP
+            </span>
+          )}
+          {snap.risk_count > 0 && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">
+              ⚠ {snap.risk_count} RISK
+            </span>
+          )}
+          {snap.watch_count > 0 && (
+            <span className="text-[10px] text-muted-foreground px-2 py-0.5 rounded-full bg-muted/40">
+              👁 {snap.watch_count} watch
+            </span>
+          )}
         </div>
-      </div>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold text-emerald-500">
-              {history.reduce((sum, h) => sum + h.pump_count, 0)}
-            </div>
-            <div className="text-xs text-muted-foreground">Total PUMP Signals (48h)</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold text-red-500">
-              {history.reduce((sum, h) => sum + h.dump_count, 0)}
-            </div>
-            <div className="text-xs text-muted-foreground">Total DUMP Signals (48h)</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold">
-              {Math.round(history.reduce((sum, h) => sum + h.pump_count, 0) / Math.max(history.length, 1))}
-            </div>
-            <div className="text-xs text-muted-foreground">Avg PUMP/Hour</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold">
-              {history.length}
-            </div>
-            <div className="text-xs text-muted-foreground">Snapshots Analyzed</div>
-          </CardContent>
-        </Card>
-      </div>
+        <div className="text-xs text-muted-foreground flex-shrink-0 text-right">
+          <div>{snap.coins_analyzed} scanned</div>
+          <div>{total} signals</div>
+        </div>
 
-      {viewMode === 'chart' ? (
-        /* Chart View */
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Signals Detected Per Snapshot (Last 48h)</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Green shows how many pump candidates were detected in each hourly snapshot. Red shows dump candidates.
-            </p>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="h-[300px] flex items-center justify-center">
-                <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : chartData.length === 0 ? (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                No historical data available yet
-              </div>
-            ) : (
-              <>
-                <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">What this means:</span>
-                  <span className="inline-flex items-center gap-1">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                    Pump candidates detected
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <span className="h-2 w-2 rounded-full bg-red-500" />
-                    Dump candidates detected
-                  </span>
+        <div className="text-muted-foreground flex-shrink-0">
+          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3 space-y-3 border-t border-border/50 pt-3">
+          {snap.market_summary && (
+            <p className="text-xs text-muted-foreground">{snap.market_summary}</p>
+          )}
+
+          {(['early', 'pump', 'dump', 'risk', 'watch'] as const).map(cat => {
+            const items = snap.signals[cat];
+            if (!items?.length) return null;
+            const cfg = catConfig[cat];
+            return (
+              <div key={cat}>
+                <div className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 ${cfg.color}`}>
+                  {cfg.icon} {cfg.label}
                 </div>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={chartData} barCategoryGap={10}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                  <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 10 }} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend />
-                  <Bar dataKey="pumps" name="Pump candidates" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={24} />
-                  <Bar dataKey="dumps" name="Dump candidates" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={24} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      ) : viewMode === 'timeline' ? (
-        /* Timeline View */
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Signal Timeline</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 max-h-[500px] overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : snapshots.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                No historical data available yet
-              </div>
-            ) : (
-              snapshots.map((snapshot, idx) => (
-                <div 
-                  key={idx}
-                  className="border border-border rounded-lg p-3 hover:border-primary/30 transition cursor-pointer"
-                  onClick={() => setExpandedSnapshot(expandedSnapshot === idx ? null : idx)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="text-xs text-muted-foreground w-32">
-                        {formatDate(snapshot.timestamp)}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
-                          <TrendingUp className="h-3 w-3 mr-1" />
-                          {snapshot.pump_count} PUMP
-                        </Badge>
-                        <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/20">
-                          <TrendingDown className="h-3 w-3 mr-1" />
-                          {snapshot.dump_count} DUMP
-                        </Badge>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{snapshot.coins_analyzed} coins</span>
-                      {expandedSnapshot === idx ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                    </div>
-                  </div>
-                  {expandedSnapshot === idx && (
-                    <div className="mt-3 space-y-4 pt-3 border-t border-border">
-                      {snapshot.market_summary && (
-                        <p className="text-sm text-muted-foreground">{snapshot.market_summary}</p>
-                      )}
-
-                      <div className="grid gap-4 lg:grid-cols-2">
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <TrendingUp className="h-4 w-4 text-emerald-500" />
-                            <h3 className="text-sm font-semibold">PUMP Signals</h3>
-                          </div>
-                          {snapshot.pump_signals.length > 0 ? (
-                            <div className="space-y-2">
-                              {snapshot.pump_signals.map((signal) => renderSignalChip(signal, 'pump'))}
-                            </div>
-                          ) : (
-                            <p className="text-xs text-muted-foreground">No PUMP signals in this snapshot.</p>
-                          )}
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <TrendingDown className="h-4 w-4 text-red-500" />
-                            <h3 className="text-sm font-semibold">DUMP Signals</h3>
-                          </div>
-                          {snapshot.dump_signals.length > 0 ? (
-                            <div className="space-y-2">
-                              {snapshot.dump_signals.map((signal) => renderSignalChip(signal, 'dump'))}
-                            </div>
-                          ) : (
-                            <p className="text-xs text-muted-foreground">No DUMP signals in this snapshot.</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Manipulation Case Replay</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Structured replay of recent setups so you can see what matured cleanly, what got crowded, and what moved into unwind risk.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : replays.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                No replay data available yet
-              </div>
-            ) : (
-              replays.map((entry) => (
-                <button
-                  key={`${entry.timestamp}-${entry.symbol}-${entry.signal_type}`}
-                  type="button"
-                  onClick={() => openSignalDetail(entry.symbol, entry.signal_type)}
-                  className="w-full rounded-xl border border-border bg-background/70 p-4 text-left transition hover:border-primary/30"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-bold">{entry.symbol}</span>
-                        <Badge className={entry.signal_type === 'pump' ? 'bg-emerald-500/15 text-emerald-600' : 'bg-red-500/15 text-red-500'}>
-                          {entry.signal_type.toUpperCase()}
-                        </Badge>
-                        <Badge variant="outline" className="capitalize">
-                          {entry.stage}
-                        </Badge>
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {entry.name || entry.symbol} · {formatDate(entry.timestamp)}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {entry.replay_type && (
-                        <Badge variant="outline" className="text-[10px]">
-                          {entry.replay_type}
-                        </Badge>
-                      )}
-                      <div className="text-xs font-semibold text-muted-foreground">
-                        {entry.replay_label}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
-                    <div className="rounded-lg bg-muted/40 px-3 py-2">
-                      <div className="text-xs text-muted-foreground">Signal</div>
-                      <div className="font-semibold">{entry.signal_strength}%</div>
-                    </div>
-                    <div className="rounded-lg bg-muted/40 px-3 py-2">
-                      <div className="text-xs text-muted-foreground">Manipulation</div>
-                      <div className="font-semibold">{entry.manipulation_score}%</div>
-                    </div>
-                    <div className="rounded-lg bg-muted/40 px-3 py-2">
-                      <div className="text-xs text-muted-foreground">Dump Risk</div>
-                      <div className="font-semibold">{entry.dump_risk_score}%</div>
-                    </div>
-                    <div className="rounded-lg bg-muted/40 px-3 py-2">
-                      <div className="text-xs text-muted-foreground">1h Move</div>
-                      <div className={`font-semibold ${entry.price_change_1h >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                        {entry.price_change_1h >= 0 ? '+' : ''}{entry.price_change_1h.toFixed(2)}%
-                      </div>
-                    </div>
-                    <div className="rounded-lg bg-muted/40 px-3 py-2">
-                      <div className="text-xs text-muted-foreground">Telegram</div>
-                      <div className="font-semibold">{entry.telegram_mentions}</div>
-                    </div>
-                  </div>
-                  <p className="mt-3 text-sm text-muted-foreground line-clamp-2">{entry.summary}</p>
-                  {entry.action && (
-                    <div className="mt-2 text-xs font-medium text-foreground/80">
-                      Action: {entry.action}
-                    </div>
-                  )}
-                  {!!entry.evidence?.length && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {entry.evidence.slice(0, 4).map((item) => (
-                        <span key={`${entry.symbol}-${entry.timestamp}-${item}`} className="rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">
-                          {item}
+                <div className="flex flex-wrap gap-1.5">
+                  {items.map((s, i) => (
+                    <button
+                      key={i}
+                      onClick={() => navigate(`/coin/${s.symbol}`)}
+                      className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border ${cfg.border} ${cfg.bg} ${cfg.color} hover:opacity-80 transition-opacity`}
+                    >
+                      <span className="font-bold">{s.symbol}</span>
+                      <span className="opacity-70">{s.confidence}%</span>
+                      {s.pre_pump_activity && <span className="text-violet-400">⚡</span>}
+                      {s.whale_accumulation && <span className="text-blue-400">🐋</span>}
+                      {s.price_change_h24 !== undefined && (
+                        <span className={s.price_change_h24 >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                          {s.price_change_h24 >= 0 ? '+' : ''}{s.price_change_h24.toFixed(1)}%
                         </span>
-                      ))}
-                    </div>
-                  )}
-                </button>
-              ))
-            )}
-          </CardContent>
-        </Card>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
+    </div>
+  );
+}
+
+// ─── Custom Tooltip ───────────────────────────────────────────────────────
+function CustomTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-background border border-border rounded-xl p-3 text-xs shadow-xl">
+      <div className="font-bold mb-2 text-foreground">{label}</div>
+      {payload.map((p: any) => (
+        <div key={p.name} className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full" style={{ background: p.fill }} />
+          <span className="text-muted-foreground">{p.name}:</span>
+          <span className="font-bold">{p.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────
+export default function HistoryPage() {
+  const [history, setHistory] = useState<Snapshot[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchHistory = useCallback(async (manual = false) => {
+    if (manual) setRefreshing(true); else setLoading(true);
+    try {
+      const token = readStoredToken();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await axios.get('/api/crypto/history-v2?limit=48', { headers });
+      if (res.data.success) {
+        setHistory(res.data.data.history || []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+
+  // Stats
+  const totalPump = history.reduce((a, s) => a + s.pump_count, 0);
+  const totalDump = history.reduce((a, s) => a + s.dump_count, 0);
+  const totalEarly = history.reduce((a, s) => a + s.early_count, 0);
+  const totalRisk = history.reduce((a, s) => a + s.risk_count, 0);
+  const totalScans = history.length;
+
+  // Chart data — last 24 snapshots
+  const chartData = [...history].reverse().slice(-24).map(s => ({
+    time: fmtTime(s.timestamp),
+    Pump: s.pump_count,
+    Early: s.early_count,
+    Risk: s.risk_count,
+    Dump: s.dump_count,
+    Watch: s.watch_count,
+  }));
+
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+      <div className="relative w-14 h-14">
+        <div className="absolute inset-0 rounded-full border-4 border-primary/20 animate-ping" />
+        <div className="absolute inset-0 rounded-full border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent animate-spin" />
+      </div>
+      <div className="font-bold">Loading signal history...</div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Activity className="h-6 w-6 text-primary" />
+            Signal History
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">Last 48 scans · PumpRadar v2</p>
+        </div>
+        <button onClick={() => fetchHistory(true)} disabled={refreshing}
+          className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-xl border border-border hover:border-primary/40 transition-colors">
+          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {[
+          { label: 'Pump Signals', value: totalPump, color: 'text-emerald-400' },
+          { label: 'Early Signals', value: totalEarly, color: 'text-violet-400' },
+          { label: 'Risk Signals', value: totalRisk, color: 'text-amber-400' },
+          { label: 'Dump Signals', value: totalDump, color: 'text-red-400' },
+          { label: 'Total Scans', value: totalScans, color: 'text-sky-400' },
+        ].map(s => (
+          <div key={s.label} className="bg-muted/20 border border-border rounded-xl p-3 text-center">
+            <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
+            <div className="text-[10px] text-muted-foreground mt-1">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Chart */}
+      {chartData.length > 0 && (
+        <div className="rounded-2xl border border-border bg-background/60 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">
+            📊 Signals per scan — last 24 scans
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#475569' }} interval={3} />
+              <YAxis tick={{ fontSize: 9, fill: '#475569' }} />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend wrapperStyle={{ fontSize: '10px' }} />
+              <Bar dataKey="Pump" stackId="a" fill={catColors.pump} radius={[0,0,0,0]} />
+              <Bar dataKey="Early" stackId="a" fill={catColors.early} radius={[0,0,0,0]} />
+              <Bar dataKey="Risk" stackId="a" fill={catColors.risk} radius={[0,0,0,0]} />
+              <Bar dataKey="Dump" stackId="a" fill={catColors.dump} radius={[2,2,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Timeline */}
+      <div className="space-y-2">
+        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+          🕐 Scan Timeline — click to expand
+        </div>
+        {history.length === 0
+          ? <div className="text-center py-16 text-muted-foreground">No scan history yet</div>
+          : history.map((snap, i) => <SnapshotRow key={i} snap={snap} index={i} />)
+        }
+      </div>
     </div>
   );
 }

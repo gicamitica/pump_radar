@@ -170,8 +170,11 @@ export const navigationSections: NavGroup[] = [
     id: 'pumpradar',
     items: [
       { id: 'dashboard', icon: 'bar-chart', iconColor: 'blue', to: '/dashboard', navRole: 'primary', exact: true },
+      { id: 'early-signals', icon: 'zap', iconColor: 'purple', to: '/early', navRole: 'primary' },
       { id: 'pump-signals', icon: 'zap', iconColor: 'emerald', to: '/dashboard/pump', navRole: 'primary', exact: true },
       { id: 'dump-signals', icon: 'alert-triangle', iconColor: 'rose', to: '/dashboard/dump', navRole: 'primary', exact: true },
+      { id: 'dex-signals', icon: 'zap', iconColor: 'orange', to: '/dex', navRole: 'primary' },
+      { id: 'risk-signals', icon: 'alert-triangle', iconColor: 'amber', to: '/risk', navRole: 'primary' },
       { id: 'history', icon: 'clock', iconColor: 'slate', to: '/history', navRole: 'primary' },
       { id: 'telegram-signals', icon: 'telegram', iconColor: 'cyan', to: '/telegram-signals', navRole: 'primary' },
       { id: 'watchlist', icon: 'heart-pulse', iconColor: 'amber', to: '/watchlist', navRole: 'primary' },

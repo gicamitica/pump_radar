@@ -61,12 +61,15 @@
     "dashboard": "Signals Dashboard",
     "pump-signals": "PUMP Signals",
     "dump-signals": "DUMP Signals",
+    "early-signals": "Early Signals",
     "history": "Signal History",
     "telegram-signals": "Telegram Signals",
-    "watchlist": "My Watchlist",
+    "watchlist": "Token OSINT Lab",
     "subscription": "Subscription",
     "ai-chat": "AI Assistant",
-    "admin": "Admin Panel"
+    "admin": "Admin Panel",
+    "dex-signals": "DEX Signals",
+    "risk-signals": "Risk Signals"
   },
   "steps": {
     "teams": {
@@ -249,7 +252,7 @@
       "upgradeTitle": "Featured Features",
       "upgradeDesc": "Unlock unlimited possibilities",
       "getStarted": "Get Started Today",
-      "guarantee": "Cancel anytime \u2022 30-day money back",
+      "guarantee": "Cancel anytime • 30-day money back",
       "offerTitle": "Limited Offer",
       "offerDesc": "Get 20% off annual plans this month",
       "needHelp": "Need Help? Contact Us",

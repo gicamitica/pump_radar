@@ -9,5 +9,8 @@ export const CRYPTO_PATHS = {
   SUBSCRIPTION_SUCCESS: '/subscription/success',
   AI_CHAT: '/ai-chat',
   ADMIN: '/admin',
+  EARLY_SIGNALS: '/early',
   COIN_DETAIL: '/coin/:symbol',
+  DEX: '/dex',
+  RISK: '/risk',
 } as const;

@@ -12,6 +12,7 @@ const parseStoredString = (raw: string | null): string | null => {
 };
 
 const AUTH_TOKEN_KEY = 'pumpradar_auth_token';
+const LEGACY_AUTH_TOKEN_KEY = 'katalyst_auth_token';
 const SUPER_ADMIN_TOKEN_KEY = 'pumpradar_super_admin_token';
 
 const readTokenForKey = (key: string): string | null => {
@@ -21,7 +22,7 @@ const readTokenForKey = (key: string): string | null => {
 };
 
 export const readStoredToken = (): string | null => {
-  return readTokenForKey(AUTH_TOKEN_KEY);
+  return readTokenForKey(AUTH_TOKEN_KEY) || readTokenForKey(LEGACY_AUTH_TOKEN_KEY);
 };
 
 export const readStoredSuperAdminToken = (): string | null => {
