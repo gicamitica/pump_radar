@@ -41,7 +41,7 @@ const categoryConfig: Record<CatKey, {
 const dumpRiskColor = { low:'text-emerald-400', medium:'text-amber-400', high:'text-red-400' };
 
 function getActionBadge(signal: V2Signal): { label:string; classes:string } {
-  if (signal.red_flags.includes('honeypot') || signal.red_flags.includes('cannot_sell_all'))
+  if ((signal.red_flags || []).includes('honeypot') || (signal.red_flags || []).includes('cannot_sell_all'))
     return { label:'☠ KEEP OUT', classes:'bg-red-800 text-red-100' };
   if (signal.category === 'dump' || (signal.category === 'risk' && signal.dump_risk_level === 'high'))
     return { label:'☠ KEEP OUT', classes:'bg-red-800 text-red-100' };
@@ -319,10 +319,16 @@ function SignalCard({ signal, onClick }: { signal:V2Signal; onClick:()=>void }) 
   const wc = signal.whale_score>=70 ? 'text-blue-400' : signal.whale_score>=40 ? 'text-amber-400' : 'text-muted-foreground';
   const wBg = signal.whale_accumulation ? 'bg-blue-500/10 border border-blue-500/20' : 'bg-muted/40';
   const mc = manipColor(signal.manipulation_probability);
+  // Tier dupa confidence: tare (>=75), normal (50-74), slab (<50)
+  const tier = signal.confidence>=75 ? 'strong' : signal.confidence>=50 ? 'normal' : 'weak';
+  const tierGlow = tier==='strong' ? 'shadow-lg ring-1' : '';
+  const tierOpacity = tier==='weak' ? 'opacity-70 hover:opacity-100' : '';
+  const confSize = tier==='strong' ? 'text-3xl' : 'text-2xl';
 
   return (
     <div onClick={onClick}
-      className={`relative rounded-2xl border ${cfg.border} bg-background/80 p-4 pt-6 space-y-3 hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer`}>
+      style={tier==='strong' ? {boxShadow:`0 0 0 1px ${cfg.hex}40, 0 8px 24px -8px ${cfg.hex}40`} : undefined}
+      className={`relative rounded-2xl border ${cfg.border} bg-background/80 p-3 pt-5 space-y-2 hover:-translate-y-0.5 transition-all cursor-pointer ${tierGlow} ${tierOpacity}`}>
       <div className={`absolute -top-3 left-1/2 -translate-x-1/2 ${badge.classes} text-[11px] font-bold px-3 py-1 rounded-full whitespace-nowrap z-10`}>
         {badge.label}
       </div>
@@ -335,17 +341,17 @@ function SignalCard({ signal, onClick }: { signal:V2Signal; onClick:()=>void }) 
           <div className="text-xs text-muted-foreground">{signal.network} · {signal.verdict}</div>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <div className={`text-2xl font-bold ${cfg.color}`}>{signal.confidence}%</div>
+          <div className={`${confSize} font-bold ${cfg.color} leading-none`}>{signal.confidence}%</div>
           {signal.pre_pump_activity && (
             <span className="text-[10px] font-bold text-violet-400 bg-violet-500/10 px-1.5 py-0.5 rounded-full">⚡ PRE-PUMP</span>
           )}
         </div>
       </div>
-      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-        <div className="h-full rounded-full" style={{width:`${signal.confidence}%`, background:cfg.hex}}/>
+      <div className="h-2 bg-muted rounded-full overflow-hidden">
+        <div className="h-full rounded-full" style={{width:`${signal.confidence}%`, background:`linear-gradient(90deg, ${cfg.hex}99, ${cfg.hex})`}}/>
       </div>
-      <p className="text-xs text-muted-foreground leading-relaxed">{signal.reason}</p>
-      <div className="grid grid-cols-3 gap-2">
+      <p className="text-xs text-muted-foreground leading-snug line-clamp-2">{signal.reason}</p>
+      <div className="grid grid-cols-3 gap-1.5">
         {[
           {label:'Price', value:fmtPrice(signal.price_usd), color:''},
           {label:'1h', value:`${(signal.price_change_h1??0)>=0?'+':''}${fmt(signal.price_change_h1)}%`, color:ch1Color},
@@ -354,8 +360,8 @@ function SignalCard({ signal, onClick }: { signal:V2Signal; onClick:()=>void }) 
           {label:'B/S', value:fmt(signal.buy_sell_ratio_h1), color:''},
           {label:'Liquidity', value:fmtVol(signal.reserve_usd), color:''},
         ].map(m => (
-          <div key={m.label} className="bg-muted/40 rounded-lg p-2 text-center">
-            <div className="text-[10px] text-muted-foreground">{m.label}</div>
+          <div key={m.label} className="bg-muted/40 rounded-lg p-1.5 text-center">
+            <div className="text-[9px] text-muted-foreground">{m.label}</div>
             <div className={`text-xs font-bold ${m.color}`}>{m.value}</div>
           </div>
         ))}
@@ -474,7 +480,7 @@ export default function SignalsDashboard({ forcedTab }: Props = {}) {
   // forcedTab sync
   useEffect(() => { if (forcedTab) setFilter(forcedTab as FilterKey); }, [forcedTab]);
 
-  const fmtTimer = (s:number) => s<=0 ? 'scanning...' : `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
+  const fmtTimer = (s:number) => s<=0 ? 'soon' : `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
 
   const signals: Record<CatKey,V2Signal[]> = {
     pump:  data?.pump_signals||[],  dump:  data?.dump_signals||[],
@@ -529,6 +535,47 @@ export default function SignalsDashboard({ forcedTab }: Props = {}) {
             {refreshing?'Refreshing...':'Refresh'}
           </button>
         </div>
+      </div>
+
+      {/* Snapshot age timer - dual ring */}
+      <style>{`
+        @keyframes pr_flashbg { 0%,100%{background-color:rgba(99,102,241,0.05)} 50%{background-color:rgba(16,185,129,0.18)} }
+        @keyframes pr_flashstroke { 0%,100%{opacity:0.3} 50%{opacity:1} }
+        .pr-flashcard { animation: pr_flashbg 1s ease-in-out infinite; }
+        .pr-flashring { animation: pr_flashstroke 1s ease-in-out infinite; }
+      `}</style>
+      <div className={`rounded-2xl border border-indigo-500/30 px-6 py-5 flex items-center justify-between gap-6 ${nextRefresh > 0 ? 'bg-indigo-500/5' : 'pr-flashcard'}`}>
+        {nextRefresh > 0 ? (
+          <>
+            <div>
+              <div className="text-xl font-semibold tracking-tight text-indigo-300">Snapshot age</div>
+              <div className="text-sm mt-1.5 max-w-[280px] leading-snug font-medium" style={{color:'#f97316'}}>data captured by the last scan - tap a coin for live data</div>
+              <div className="flex gap-4 mt-3">
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="w-2.5 h-2.5 rounded-full" style={{background:'#10b981'}}/>age</span>
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="w-2.5 h-2.5 rounded-full" style={{background:'#818cf8'}}/>next scan</span>
+              </div>
+            </div>
+            <svg width="150" height="150" viewBox="0 0 150 150" className="flex-shrink-0">
+              <circle cx="75" cy="75" r="64" fill="none" stroke="rgba(148,163,184,0.2)" strokeWidth="12"/>
+              <circle cx="75" cy="75" r="48" fill="none" stroke="rgba(148,163,184,0.2)" strokeWidth="12"/>
+              <circle cx="75" cy="75" r="64" fill="none" stroke="#10b981" strokeWidth="12" strokeLinecap="round" transform="rotate(-90 75 75)" strokeDasharray={2*Math.PI*64} strokeDashoffset={(2*Math.PI*64)*(1-(3600-nextRefresh)/3600)}/>
+              <circle cx="75" cy="75" r="48" fill="none" stroke="#818cf8" strokeWidth="12" strokeLinecap="round" transform="rotate(-90 75 75)" strokeDasharray={2*Math.PI*48} strokeDashoffset={(2*Math.PI*48)*(1-nextRefresh/3600)}/>
+              <text x="75" y="72" textAnchor="middle" style={{fontSize:'27px',fontWeight:600,fill:'#10b981',fontVariantNumeric:'tabular-nums',letterSpacing:'-0.02em'}}>{fmtTimer(3600 - nextRefresh)}</text>
+              <text x="75" y="93" textAnchor="middle" style={{fontSize:'14px',fontWeight:500,fill:'#818cf8',fontVariantNumeric:'tabular-nums'}}>{fmtTimer(nextRefresh)} left</text>
+            </svg>
+          </>
+        ) : (
+          <>
+            <div>
+              <div className="text-xl font-semibold tracking-tight" style={{color:'#10b981'}}>Scanning now</div>
+              <div className="text-sm mt-1.5 max-w-[280px] leading-snug font-medium" style={{color:'#f97316'}}>fresh data incoming...</div>
+            </div>
+            <svg width="150" height="150" viewBox="0 0 150 150" className="flex-shrink-0">
+              <circle className="pr-flashring" cx="75" cy="75" r="64" fill="none" stroke="#10b981" strokeWidth="12"/>
+              <text x="75" y="82" textAnchor="middle" style={{fontSize:'18px',fontWeight:600,fill:'#10b981'}}>live</text>
+            </svg>
+          </>
+        )}
       </div>
 
       {/* Market summary */}

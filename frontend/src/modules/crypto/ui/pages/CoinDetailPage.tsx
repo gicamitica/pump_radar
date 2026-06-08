@@ -84,14 +84,14 @@ function buildVenues(signal: V2Signal): TradingVenue[] {
   if (isSolana && addr) {
     venues.push({
       name: 'Raydium', type: 'DEX',
-      url: `https://raydium.io/swap/?outputCurrency=${addr}`,
+      url: `https://raydium.io/swap/?inputMint=So11111111111111111111111111111111111111112&outputMint=${addr}`,
       pair: `${sym}/SOL · Raydium`,
       logo: 'https://raydium.io/favicon.ico',
       color: '#9945ff', bgColor: '#9945ff18',
     });
     venues.push({
       name: 'Jupiter', type: 'SWAP',
-      url: `https://jup.ag/swap/SOL-${addr}`,
+      url: `https://jup.ag/swap?sell=So11111111111111111111111111111111111111112&buy=${addr}`,
       pair: 'Best route · Solana aggregator',
       logo: 'https://jup.ag/favicon.ico',
       color: '#a78bfa', bgColor: '#6366f118',
@@ -113,20 +113,28 @@ function buildVenues(signal: V2Signal): TradingVenue[] {
     });
   }
 
-  venues.push({
-    name: 'Binance', type: 'CEX',
-    url: `https://www.binance.com/en/trade/${sym}_USDT`,
-    pair: `${sym}/USDT · Spot`,
-    logo: 'https://www.binance.com/favicon.ico',
-    color: '#f0b90b', bgColor: '#f0b90b18',
-  });
-  venues.push({
-    name: 'Coinbase', type: 'CEX',
-    url: `https://www.coinbase.com/advanced-trade/spot/${sym}-USD`,
-    pair: `${sym}/USD · Spot`,
-    logo: 'https://www.coinbase.com/favicon.ico',
-    color: '#4dabf7', bgColor: '#0033a018',
-  });
+  // Detecteaza memecoin DEX-only (pump.fun etc.) - NU are listare CEX, ascundem CEX
+  const isMemeDexOnly = (addr || '').toLowerCase().includes('pump') ||
+    ((addr || '').toLowerCase().endsWith('moon')) ||
+    (isSolana && (signal.reserve_usd || 0) < 50000) ||
+    ((signal.volume_h24 || 0) < 1000);  // volum mort/fake => sigur nu e listare CEX reala
+  if (!isMemeDexOnly) {
+    // Linkuri CEX ca CAUTARE (nu pereche directa) - eviti token gresit cu acelasi ticker
+    venues.push({
+      name: 'Binance', type: 'CEX',
+      url: `https://www.binance.com/en/trade/${sym}_USDT`,
+      pair: `${sym}/USDT · verifica`,
+      logo: 'https://www.binance.com/favicon.ico',
+      color: '#f0b90b', bgColor: '#f0b90b18',
+    });
+    venues.push({
+      name: 'Coinbase', type: 'CEX',
+      url: `https://www.coinbase.com/advanced-trade/spot/${sym}-USD`,
+      pair: `${sym}/USD · verifica`,
+      logo: 'https://www.coinbase.com/favicon.ico',
+      color: '#4dabf7', bgColor: '#0033a018',
+    });
+  }
 
   const firstDex = venues.find(v => v.type === 'DEX');
   if (firstDex) firstDex.isBest = true;
@@ -173,6 +181,9 @@ export default function CoinDetailPage() {
   const navigate = useNavigate();
   const [signal, setSignal] = useState<V2Signal | null>(null);
   const [cgData, setCgData] = useState<CoinGeckoData | null>(null);
+  const [scanSnapshot, setScanSnapshot] = useState<{price_usd:number; volume_h24:number; reserve_usd:number}|null>(null);
+  const [scanTime, setScanTime] = useState<number>(0);
+  const [, forceTick] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -195,7 +206,41 @@ export default function CoinDetailPage() {
         const found = all.find((s: V2Signal) => s.symbol.toUpperCase() === symbol.toUpperCase());
         if (found) {
           setSignal(found);
-          const cgId = COINGECKO_IDS[found.symbol.toUpperCase()];
+          // captureaza valorile INGHETATE de la scan (inainte de suprascrierea live)
+          setScanSnapshot({ price_usd: found.price_usd, volume_h24: found.volume_h24, reserve_usd: found.reserve_usd });
+          setScanTime(res.data.data.last_updated ? new Date(res.data.data.last_updated).getTime() : Date.now());
+          // Date LIVE din GeckoTerminal (sincron cu graficul) - suprascrie h1/h24 inghetate din scan
+          if (found.token_address && found.network && found.network.toLowerCase() !== 'unknown') {
+            try {
+              const liveRes = await axios.get(
+                `/api/crypto/coin-live/${encodeURIComponent(found.network)}/${encodeURIComponent(found.token_address)}?symbol=${encodeURIComponent(found.symbol)}`
+              );
+              const live = liveRes.data?.data;
+              if (live?.live) {
+                setSignal({
+                  ...found,
+                  price_usd: live.price_usd ?? found.price_usd,
+                  price_change_h1: live.price_change_h1 ?? found.price_change_h1,
+                  price_change_h24: live.price_change_h24 ?? found.price_change_h24,
+                  volume_h24: live.volume_h24 ?? found.volume_h24,
+                  reserve_usd: live.reserve_usd ?? found.reserve_usd,
+                  buy_sell_ratio_h1: live.buy_sell_ratio_h1 ?? found.buy_sell_ratio_h1,
+                });
+              }
+            } catch { /* fallback la datele din scan */ }
+          }
+          let cgId = COINGECKO_IDS[found.symbol.toUpperCase()];
+          // Fallback: daca simbolul nu e in lista, cauta prin CoinGecko search
+          if (!cgId) {
+            try {
+              const searchRes = await axios.get(
+                `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(found.symbol)}`
+              );
+              const coins = searchRes.data?.coins || [];
+              const exact = coins.find((co: any) => (co.symbol||'').toUpperCase() === found.symbol.toUpperCase());
+              cgId = exact?.id || coins[0]?.id;
+            } catch { /* optional */ }
+          }
           if (cgId) {
             try {
               const cgRes = await axios.get(
@@ -213,6 +258,36 @@ export default function CoinDetailPage() {
   }, [symbol]);
 
   useEffect(() => { fetchSignal(); }, [fetchSignal]);
+  // tick la 30s ca 'Xm ago' sa creasca vizibil
+  useEffect(() => { const t = setInterval(() => forceTick(n => n + 1), 30000); return () => clearInterval(t); }, []);
+
+  // Auto-refresh date LIVE de piata la 10s (doar pret/volum/lichiditate, nu verdictul AI)
+  useEffect(() => {
+    if (!symbol) return;
+    const refreshLive = async () => {
+      const s = signal;
+      if (!s || !s.token_address || !s.network || s.network.toLowerCase() === 'unknown') return;
+      try {
+        const liveRes = await axios.get(
+          `/api/crypto/coin-live/${encodeURIComponent(s.network)}/${encodeURIComponent(s.token_address)}?symbol=${encodeURIComponent(s.symbol)}`
+        );
+        const live = liveRes.data?.data;
+        if (live?.live) {
+          setSignal(prev => prev ? {
+            ...prev,
+            price_usd: live.price_usd ?? prev.price_usd,
+            price_change_h1: live.price_change_h1 ?? prev.price_change_h1,
+            price_change_h24: live.price_change_h24 ?? prev.price_change_h24,
+            volume_h24: live.volume_h24 ?? prev.volume_h24,
+            reserve_usd: live.reserve_usd ?? prev.reserve_usd,
+            buy_sell_ratio_h1: live.buy_sell_ratio_h1 ?? prev.buy_sell_ratio_h1,
+          } : prev);
+        }
+      } catch { /* pastram datele curente */ }
+    };
+    const iv = setInterval(refreshLive, 10000);
+    return () => clearInterval(iv);
+  }, [symbol, signal?.token_address, signal?.network]);
 
   if (loading) return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
@@ -237,19 +312,40 @@ export default function CoinDetailPage() {
   const cfg = catConfig[signal.category] || catConfig.watch;
   const venues = buildVenues(signal);
   const coinImg = cgData?.image?.small;
-  const price7d = cgData?.market_data?.price_change_percentage_7d;
-  const price30d = cgData?.market_data?.price_change_percentage_30d;
-  const athChange = cgData?.market_data?.ath_change_percentage?.usd;
+  // helper: variatie intre valoarea de la scan si cea live
+  const pctChange = (now?: number, then?: number) => (now != null && then != null && then !== 0) ? ((now - then) / then) * 100 : null;
+  const scanAgeMin = scanTime ? Math.max(0, Math.floor((Date.now() - scanTime) / 60000)) : 0;
+  const fmtChip = (pct: number | null) => {
+    if (pct == null) return null;
+    const up = pct >= 0;
+    return <span className="text-xs font-bold ml-2" style={{color: up ? '#10b981' : '#f87171'}}>{up?'▲':'▼'} {Math.abs(pct).toFixed(2)}%</span>;
+  };
   const marketCap = cgData?.market_data?.market_cap?.usd;
 
   const chainSlug: Record<string,string> = {
     eth:'eth', ethereum:'eth', solana:'solana', sol:'solana',
     bsc:'bsc', polygon:'polygon_pos', arbitrum:'arbitrum', base:'base',
   };
-  const gtChain = chainSlug[signal.network?.toLowerCase()||'eth'] || 'eth';
-  const chartUrl = signal.pool_address
-    ? `https://www.geckoterminal.com/${gtChain}/pools/${signal.pool_address}?embed=1&info=0&swaps=0`
-    : null;
+  const netKey = signal.network?.toLowerCase() || 'eth';
+  const gtChain = chainSlug[netKey];
+  // Slug DexScreener (difera de GeckoTerminal): eth->ethereum etc.
+  const dsChainMap: Record<string,string> = {
+    eth:'ethereum', ethereum:'ethereum', bsc:'bsc', solana:'solana', sol:'solana',
+    polygon:'polygon', polygon_pos:'polygon', arbitrum:'arbitrum', base:'base',
+    near:'near', multiversx:'multiversx', avax:'avalanche', avalanche:'avalanche',
+    optimism:'optimism',
+  };
+  const dsChain = dsChainMap[netKey] || netKey;
+  // GeckoTerminal embed pe retele suportate; altfel DexScreener (suporta near, multiversx etc.)
+  let chartUrl: string | null = null;
+  let chartSource: 'gt' | 'ds' = 'gt';
+  if (gtChain && signal.pool_address) {
+    chartUrl = `https://www.geckoterminal.com/${gtChain}/pools/${signal.pool_address}?embed=1&info=0&swaps=0`;
+    chartSource = 'gt';
+  } else if (signal.pool_address) {
+    chartUrl = `https://dexscreener.com/${dsChain}/${signal.pool_address}?embed=1&theme=dark&trades=0&info=0`;
+    chartSource = 'ds';
+  }
 
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
@@ -292,7 +388,8 @@ export default function CoinDetailPage() {
           </div>
         </div>
         <div className="text-right">
-          <div className="text-3xl font-bold">{fmtPrice(signal.price_usd)}</div>
+          <div className="text-3xl font-bold">{fmtPrice(signal.price_usd)}{fmtChip(pctChange(signal.price_usd, scanSnapshot?.price_usd))}</div>
+          {scanSnapshot && <div className="text-[10px] text-muted-foreground">at scan ({scanAgeMin}m ago): {fmtPrice(scanSnapshot.price_usd)}</div>}
           <div className={`text-xl font-bold mt-1 ${cfg.color}`}>{signal.confidence}% confidence</div>
           {marketCap && <div className="text-xs text-muted-foreground mt-1">MCap {fmtVol(marketCap)}</div>}
         </div>
@@ -302,11 +399,13 @@ export default function CoinDetailPage() {
       <div className="grid grid-cols-3 gap-2">
         <div className="bg-muted/40 rounded-lg p-2 text-center">
           <div className="text-[9px] text-muted-foreground">Volume 24h</div>
-          <div className="text-sm font-bold">{fmtVol(signal.volume_h24)}</div>
+          <div className="text-sm font-bold">{fmtVol(signal.volume_h24)}{fmtChip(pctChange(signal.volume_h24, scanSnapshot?.volume_h24))}</div>
+          {scanSnapshot && <div className="text-[8px] text-muted-foreground">scan: {fmtVol(scanSnapshot.volume_h24)}</div>}
         </div>
         <div className="bg-muted/40 rounded-lg p-2 text-center">
           <div className="text-[9px] text-muted-foreground">Liquidity</div>
-          <div className="text-sm font-bold">{fmtVol(signal.reserve_usd)}</div>
+          <div className="text-sm font-bold">{fmtVol(signal.reserve_usd)}{fmtChip(pctChange(signal.reserve_usd, scanSnapshot?.reserve_usd))}</div>
+          {scanSnapshot && <div className="text-[8px] text-muted-foreground">scan: {fmtVol(scanSnapshot.reserve_usd)}</div>}
         </div>
         <div className="bg-muted/40 rounded-lg p-2 text-center">
           <div className="text-[9px] text-muted-foreground">Sources</div>
@@ -315,30 +414,36 @@ export default function CoinDetailPage() {
       </div>
 
       {/* Price changes row */}
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <PriceCard label="1h" value={signal.price_change_h1}/>
         <PriceCard label="24h" value={signal.price_change_h24}/>
-        <PriceCard label="7d" value={price7d}/>
-        <PriceCard label="30d" value={price30d}/>
-        <PriceCard label="ATH" value={athChange}/>
       </div>
 
       {/* GeckoTerminal Chart */}
       {chartUrl && (
         <div className="rounded-2xl border border-border overflow-hidden">
           <div className="flex items-center justify-between px-3 py-2 bg-muted/20">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">🦎 Live Chart — GeckoTerminal</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">🦎 Live Chart — {chartSource==='ds'?'DexScreener':'GeckoTerminal'}</span>
             <a href={signal.pool_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors">
               Open full <ExternalLink className="h-3 w-3"/>
             </a>
           </div>
-          <iframe src={chartUrl} className="w-full" style={{height:'320px',border:'none'}} title={`${signal.symbol} chart`} loading="lazy"/>
+          {chartSource==='gt'
+            ? <iframe src={chartUrl} className="w-full" style={{height:'480px',border:'none'}} title={`${signal.symbol} chart`} loading="lazy"/>
+            : <a href={signal.pool_url || chartUrl} target="_blank" rel="noopener noreferrer"
+                className="flex flex-col items-center justify-center gap-2 py-10 text-center hover:bg-muted/10 transition-colors">
+                <span className="text-3xl">📈</span>
+                <span className="text-sm font-semibold text-indigo-400">Open live chart for {signal.symbol}</span>
+                <span className="text-[10px] text-muted-foreground">Chart embed not available for {signal.network} — opens in new tab</span>
+              </a>
+          }
         </div>
       )}
 
       {/* Whale + Manip */}
       <div className="grid grid-cols-2 gap-3">
-        <div className={`rounded-2xl border p-3 ${signal.whale_accumulation?'bg-blue-500/5 border-blue-500/20':'bg-muted/20 border-border'}`}>
+        <div onClick={() => navigate(`/coin/${signal.symbol}/whale`)}
+          className={`block rounded-2xl border p-3 cursor-pointer hover:border-blue-400/50 transition-colors ${signal.whale_accumulation?'bg-blue-500/5 border-blue-500/20':'bg-muted/20 border-border'}`}>
           <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">🐋 Whale Activity</div>
           <div className={`text-base font-bold ${signal.whale_accumulation?'text-blue-400':'text-muted-foreground'}`}>
             {signal.whale_accumulation?'Accumulating':'Not accumulating'}
@@ -347,10 +452,10 @@ export default function CoinDetailPage() {
           <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-2">
             <div className="h-full rounded-full" style={{width:`${signal.whale_score}%`,background:signal.whale_score>=70?'#3b82f6':signal.whale_score>=40?'#f59e0b':'#6b7280'}}/>
           </div>
-          <div className="text-[10px] text-muted-foreground mt-2">On-chain · Helius / Etherscan</div>
+          <div className="text-[10px] text-muted-foreground mt-2">View whale details ↗</div>
         </div>
-        <div className="rounded-2xl border border-border bg-muted/20 p-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">⚠️ Manipulation Risk</div>
+        <div onClick={() => navigate('/risk')} className="rounded-2xl border border-border bg-muted/20 p-3 cursor-pointer hover:border-amber-400/50 transition-colors">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">⚠️ Manipulation Risk ↗</div>
           <div className="text-base font-bold" style={{color:manipColor(signal.manipulation_probability)}}>
             {signal.manipulation_probability}% · {manipLabel(signal.manipulation_probability)}
           </div>
