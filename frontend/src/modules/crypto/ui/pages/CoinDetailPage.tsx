@@ -183,6 +183,7 @@ export default function CoinDetailPage() {
   const [cgData, setCgData] = useState<CoinGeckoData | null>(null);
   const [scanSnapshot, setScanSnapshot] = useState<{price_usd:number; volume_h24:number; reserve_usd:number}|null>(null);
   const [scanTime, setScanTime] = useState<number>(0);
+  const [cexPrices, setCexPrices] = useState<{binance:number|null; coinbase:number|null}>({binance:null, coinbase:null});
   const [, forceTick] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -284,6 +285,12 @@ export default function CoinDetailPage() {
           } : prev);
         }
       } catch { /* pastram datele curente */ }
+      // pret CEX (Binance/Coinbase) la fiecare refresh
+      try {
+        const cexRes = await axios.get(`/api/crypto/cex-prices/${encodeURIComponent(s.symbol)}`);
+        const cx = cexRes.data?.data;
+        if (cx) setCexPrices({binance: cx.binance ?? null, coinbase: cx.coinbase ?? null});
+      } catch { /* optional */ }
     };
     const iv = setInterval(refreshLive, 10000);
     return () => clearInterval(iv);
@@ -532,7 +539,16 @@ export default function CoinDetailPage() {
                 <div className="text-[10px] text-muted-foreground mt-0.5">{v.pair}</div>
                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{background:v.bgColor,color:v.color}}>{v.type}</span>
               </div>
-              <div className="text-indigo-400 text-xs font-bold flex-shrink-0">Trade →</div>
+              <div className="text-right flex-shrink-0">
+                {(() => {
+                  let p: number | null = null;
+                  if (v.name === 'Binance') p = cexPrices.binance;
+                  else if (v.name === 'Coinbase') p = cexPrices.coinbase;
+                  else if (v.type === 'DEX') p = signal.price_usd;
+                  return p != null ? <div className="text-sm font-bold tabular-nums">{fmtPrice(p)}</div> : null;
+                })()}
+                <div className="text-indigo-400 text-xs font-bold">Trade →</div>
+              </div>
             </a>
           ))}
         </div>
