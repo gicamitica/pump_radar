@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, ExternalLink, RefreshCw, Shield } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ExternalLink, RefreshCw, Shield } from 'lucide-react';
 import { readStoredToken } from '@/shared/utils/tokenStorage';
 
 interface V2Signal {
@@ -388,12 +388,31 @@ export default function CoinDetailPage() {
           </div>
         </div>
         <div className="text-right">
-          <div className="text-3xl font-bold">{fmtPrice(signal.price_usd)}{fmtChip(pctChange(signal.price_usd, scanSnapshot?.price_usd))}</div>
-          {scanSnapshot && <div className="text-[10px] text-muted-foreground">at scan ({scanAgeMin}m ago): {fmtPrice(scanSnapshot.price_usd)}</div>}
+          <div className="text-3xl font-bold">{fmtPrice(signal.price_usd)}</div>
           <div className={`text-xl font-bold mt-1 ${cfg.color}`}>{signal.confidence}% confidence</div>
           {marketCap && <div className="text-xs text-muted-foreground mt-1">MCap {fmtVol(marketCap)}</div>}
         </div>
       </div>
+
+      {/* Big scan-vs-now price card */}
+      {scanSnapshot && (
+        <div className="rounded-2xl border border-border bg-muted/30 px-5 py-4">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3">Price</div>
+          <div className="flex items-end gap-4 flex-wrap">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">at scan ({scanAgeMin}m ago)</div>
+              <div className="text-lg font-semibold text-muted-foreground tabular-nums mt-0.5">{fmtPrice(scanSnapshot.price_usd)}</div>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground mb-1.5"/>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-primary">now (live)</div>
+              <div className="text-3xl font-bold text-primary tabular-nums mt-0.5 leading-none">{fmtPrice(signal.price_usd)}</div>
+            </div>
+            <div className="mb-1.5">{fmtChip(pctChange(signal.price_usd, scanSnapshot.price_usd))}</div>
+          </div>
+          <div className="text-[10px] text-muted-foreground mt-3 pt-2.5 border-t border-border">updated live · refreshes every 10s</div>
+        </div>
+      )}
 
       {/* Metrics row 1 */}
       <div className="grid grid-cols-3 gap-2">
