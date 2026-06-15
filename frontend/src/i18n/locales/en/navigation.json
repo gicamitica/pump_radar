@@ -12,7 +12,11 @@
     "showcase": "Showcase",
     "auth": "Authentication",
     "system": "System",
-    "pumpradar": "PumpRadar"
+    "pumpradar": "PumpRadar",
+    "signals": "Signals",
+    "intelligence": "Intelligence",
+    "tools": "Tools",
+    "account": "Account"
   },
   "item": {
     "admin-control": "Admin Control Center",
@@ -64,6 +68,7 @@
     "early-signals": "Early Signals",
     "history": "Signal History",
     "telegram-signals": "Telegram Signals",
+    "onchain-radar": "On-Chain Radar",
     "watchlist": "Token OSINT Lab",
     "subscription": "Subscription",
     "ai-chat": "AI Assistant",

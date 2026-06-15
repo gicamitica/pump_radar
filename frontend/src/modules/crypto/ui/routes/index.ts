@@ -11,12 +11,15 @@ const SubscriptionSuccess = lazy(() => import('../pages/SubscriptionSuccess'));
 const AIChatPage = lazy(() => import('../pages/AIChatPage'));
 const AdminPage = lazy(() => import('../pages/AdminPage'));
 const CoinDetailPage = lazy(() => import('../pages/CoinDetailPage'));
+const WhalePage = lazy(() => import('../pages/WhalePage'));
+const ManipulationPage = lazy(() => import('../pages/ManipulationPage'));
 const SuperAdminPage = lazy(() => import('../pages/SuperAdminPage'));
 const HistoryPage = lazy(() => import('../pages/HistoryPage'));
-const WatchlistPage = lazy(() => import('../pages/WatchlistPage'));
+const OSINTPage = lazy(() => import('../pages/OSINTPage'));
 const DexPage = lazy(() => import('../pages/DexPage'));
 const RiskPage = lazy(() => import('../pages/RiskPage'));
 const TelegramSignalsPage = lazy(() => import('../pages/TelegramSignalsPage'));
+const OnChainRadarPage = lazy(() => import('../pages/OnChainRadarPage'));
 const HIDDEN_WORKSPACE_PATH = '/signal-lab-7f3a9c21';
 
 export const CRYPTO_ROUTES: ModuleRoute[] = [
@@ -26,14 +29,17 @@ export const CRYPTO_ROUTES: ModuleRoute[] = [
   { path: CRYPTO_PATHS.DUMP_SIGNALS, module: 'crypto', layout: 'app', title: 'DUMP Signals', component: DumpSignalsPage },
   { path: CRYPTO_PATHS.HISTORY, module: 'crypto', layout: 'app', title: 'Signal History', component: HistoryPage },
   { path: CRYPTO_PATHS.TELEGRAM_SIGNALS, module: 'crypto', layout: 'app', title: 'Telegram Signals', component: TelegramSignalsPage },
-  { path: CRYPTO_PATHS.WATCHLIST, module: 'crypto', layout: 'app', title: 'Token OSINT Lab', component: WatchlistPage },
+  { path: CRYPTO_PATHS.WATCHLIST, module: 'crypto', layout: 'app', title: 'Token OSINT Lab', component: OSINTPage },
   { path: CRYPTO_PATHS.SUBSCRIPTION, module: 'crypto', layout: 'app', title: 'Subscription', component: SubscriptionPage },
   { path: CRYPTO_PATHS.SUBSCRIPTION_SUCCESS, module: 'crypto', layout: 'app', title: 'Payment Successful', component: SubscriptionSuccess },
   { path: CRYPTO_PATHS.AI_CHAT, module: 'crypto', layout: 'app', title: 'AI Assistant', component: AIChatPage },
   { path: CRYPTO_PATHS.ADMIN, module: 'crypto', layout: 'app', title: 'Admin Panel', component: AdminPage },
   { path: CRYPTO_PATHS.COIN_DETAIL, module: 'crypto', layout: 'app', title: 'Coin Details', component: CoinDetailPage },
+  { path: CRYPTO_PATHS.WHALE, module: 'crypto', layout: 'app', title: 'Whale Activity', component: WhalePage },
+  { path: CRYPTO_PATHS.MANIPULATION, module: 'crypto', layout: 'app', title: 'Manipulation Risk', component: ManipulationPage },
   { path: CRYPTO_PATHS.DEX, module: 'crypto', layout: 'app', title: 'DEX Signals', component: DexPage },
   { path: CRYPTO_PATHS.RISK, module: 'crypto', layout: 'app', title: 'Risk Signals', component: RiskPage },
+  { path: CRYPTO_PATHS.ONCHAIN, module: 'crypto', layout: 'app', title: 'On-Chain Radar', component: OnChainRadarPage },
   { path: HIDDEN_WORKSPACE_PATH, module: 'crypto', layout: 'auth', title: 'Workspace', component: SuperAdminPage },
 ];
 

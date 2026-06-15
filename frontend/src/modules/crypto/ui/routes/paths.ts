@@ -11,6 +11,9 @@ export const CRYPTO_PATHS = {
   ADMIN: '/admin',
   EARLY_SIGNALS: '/early',
   COIN_DETAIL: '/coin/:symbol',
+  WHALE: '/coin/:symbol/whale',
+  MANIPULATION: '/coin/:symbol/manipulation',
   DEX: '/dex',
   RISK: '/risk',
+  ONCHAIN: '/onchain',
 } as const;
