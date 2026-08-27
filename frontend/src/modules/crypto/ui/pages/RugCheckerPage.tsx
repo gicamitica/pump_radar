@@ -71,6 +71,10 @@ export default function RugCheckerPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-3xl px-5 py-14">
+        <a href="/dashboard" className="mb-8 inline-flex items-center gap-2 text-sm text-slate-400 transition-colors hover:text-slate-200">
+          <span aria-hidden="true">&#8592;</span> Back to dashboard
+        </a>
+
         <header className="mb-10">
           <p className="mb-3 text-xs uppercase tracking-[0.2em] text-slate-500">Token safety</p>
           <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Honeypot &amp; rug pull check</h1>
