@@ -18,6 +18,7 @@ export const CRYPTO_PATHS = {
   RISK: '/risk',
   ONCHAIN: '/onchain',
   SCAN: '/scan',
+  RUG_CHECK: '/rug-checker',
   TRACK_RECORD: '/track-record',
   ABOUT: '/about',
   DOCS: '/docs',

@@ -23,6 +23,7 @@ const TelegramSignalsPage = lazy(() => import('../pages/TelegramSignalsPage'));
 const OnChainRadarPage = lazy(() => import('../pages/OnChainRadarPage'));
 const TrackRecordPage = lazy(() => import('../pages/TrackRecordPage'));
 const FreeScanPage = lazy(() => import('../pages/FreeScanPage'));
+const RugCheckerPage = lazy(() => import('../pages/RugCheckerPage'));
 const InfoPage = lazy(() => import('../pages/InfoPage'));
 const SolbotDashboardPage = lazy(() => import('../pages/SolbotDashboardPage'));
 const HIDDEN_WORKSPACE_PATH = '/signal-lab-7f3a9c21';
@@ -47,6 +48,7 @@ export const CRYPTO_ROUTES: ModuleRoute[] = [
   { path: CRYPTO_PATHS.RISK, module: 'crypto', layout: 'app', title: 'Risk Signals', component: RiskPage },
   { path: CRYPTO_PATHS.ONCHAIN, module: 'crypto', layout: 'app', title: 'On-Chain Radar', component: OnChainRadarPage },
   { path: CRYPTO_PATHS.SCAN, module: 'crypto', layout: 'none', title: 'Free Token Scan', component: FreeScanPage },
+  { path: CRYPTO_PATHS.RUG_CHECK, module: 'crypto', layout: 'none', title: 'Rug Checker', component: RugCheckerPage },
   { path: CRYPTO_PATHS.TRACK_RECORD, module: 'crypto', layout: 'none', title: 'Past Calls', component: TrackRecordPage },
   { path: CRYPTO_PATHS.ABOUT, module: 'crypto', layout: 'none', title: 'About', component: InfoPage },
   { path: CRYPTO_PATHS.DOCS, module: 'crypto', layout: 'none', title: 'Docs', component: InfoPage },
