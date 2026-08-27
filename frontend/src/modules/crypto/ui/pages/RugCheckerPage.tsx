@@ -41,7 +41,11 @@ export default function RugCheckerPage() {
   const qChain = (params.get("chain") || "").trim().toLowerCase();
   const [address, setAddress] = useState(qAddr);
   const [chain, setChain] = useState(
-    CHAINS.some((c) => c.id === qChain) ? qChain : "solana"
+    CHAINS.some((c) => c.id === qChain)
+      ? qChain
+      : /^0x/.test(qAddr)
+        ? "eth"
+        : "solana"
   );
   const [touched, setTouched] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -52,7 +56,8 @@ export default function RugCheckerPage() {
     setAddress(v);
     if (touched) return;
     const a = v.trim();
-    if (/^0x/.test(a)) setChain("eth");
+    if (/^0x[a-fA-F0-9]{40}$/.test(a)) setChain("eth");
+    else if (/^0x/.test(a)) setChain("eth");
     else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a)) setChain("solana");
   }
 
