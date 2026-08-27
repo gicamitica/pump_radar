@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Flag = { level: "red" | "amber" | "unknown" | "green"; text: string };
 type Result = {
@@ -36,8 +36,13 @@ const FLAG_STYLE: Record<Flag["level"], { dot: string; text: string; label: stri
 };
 
 export default function RugCheckerPage() {
-  const [address, setAddress] = useState("");
-  const [chain, setChain] = useState("solana");
+  const params = new URLSearchParams(window.location.search);
+  const qAddr = (params.get("address") || "").trim();
+  const qChain = (params.get("chain") || "").trim().toLowerCase();
+  const [address, setAddress] = useState(qAddr);
+  const [chain, setChain] = useState(
+    CHAINS.some((c) => c.id === qChain) ? qChain : "solana"
+  );
   const [touched, setTouched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +69,11 @@ export default function RugCheckerPage() {
       setError("Network error. Try again.");
     } finally { setLoading(false); }
   }
+
+  useEffect(() => {
+    if (qAddr) check();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const verified = result ? Number(result.coverage.split("/")[0]) : 0;
   const total = result ? Number(result.coverage.split("/")[1]) : 5;
