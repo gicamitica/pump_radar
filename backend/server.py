@@ -19,7 +19,6 @@ import secrets
 import struct
 import httpx
 import stripe
-import google.generativeai as genai
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Annotated, Tuple
 from urllib.parse import quote, unquote
@@ -59,7 +58,12 @@ RESEND_API_KEY = os.environ["RESEND_API_KEY"]
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "noreply@arbitrajz.com")
 LUNARCRUSH_API_KEY = os.environ["LUNARCRUSH_API_KEY"]
 COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
+OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip()
+PUMP_ENGINE_AI_MODEL = os.environ.get("PUMP_ENGINE_AI_MODEL", "openai/gpt-4.1-mini").strip()
+AI_PROVIDER_PRIMARY = os.environ.get("AI_PROVIDER_PRIMARY", "openrouter").strip().lower()
 STRIPE_API_KEY = os.environ["STRIPE_API_KEY"]
 APP_URL = os.environ.get("APP_URL", "http://localhost:3000")
 LOGO_URL = f"{APP_URL}/logo-pumpradar.png"
@@ -80,8 +84,167 @@ SUPER_ADMIN_TOTP_SECRET = os.environ.get("SUPER_ADMIN_TOTP_SECRET", "")
 SUPER_ADMIN_ISSUER = os.environ.get("SUPER_ADMIN_ISSUER", "PumpRadar Super Admin")
 SUPER_ADMIN_TOKEN_EXPIRE_HOURS = int(os.environ.get("SUPER_ADMIN_TOKEN_EXPIRE_HOURS", "12"))
 
-# Configure Gemini
-genai.configure(api_key=GEMINI_API_KEY)
+
+def get_primary_ai_config() -> dict:
+    """Return primary OpenAI-compatible AI configuration.
+
+    Priority:
+    - OpenRouter if configured
+    - OpenAI direct if configured
+    """
+    if AI_PROVIDER_PRIMARY == "openai" and OPENAI_API_KEY:
+        return {
+            "provider": "openai",
+            "api_key": OPENAI_API_KEY,
+            "base_url": "https://api.openai.com/v1",
+            "model": os.environ.get("OPENAI_MODEL", "gpt-4.1-mini").strip(),
+        }
+
+    if OPENROUTER_API_KEY:
+        return {
+            "provider": "openrouter",
+            "api_key": OPENROUTER_API_KEY,
+            "base_url": OPENROUTER_BASE_URL.rstrip("/"),
+            "model": PUMP_ENGINE_AI_MODEL,
+        }
+
+    if OPENAI_API_KEY:
+        return {
+            "provider": "openai",
+            "api_key": OPENAI_API_KEY,
+            "base_url": "https://api.openai.com/v1",
+            "model": os.environ.get("OPENAI_MODEL", "gpt-4.1-mini").strip(),
+        }
+
+    return {
+        "provider": "none",
+        "api_key": "",
+        "base_url": "",
+        "model": "",
+    }
+
+
+async def call_openai_compatible_text(
+    *,
+    system_instruction: str,
+    user_prompt: str,
+    temperature: float = 0.2,
+    max_tokens: int = 1600,
+) -> dict:
+    """Call OpenAI-compatible chat completion endpoint and return text.
+
+    This does not replace Gemini yet. It is a primary-provider wrapper ready for controlled migration.
+    """
+    cfg = get_primary_ai_config()
+    if not cfg.get("api_key") or not cfg.get("base_url") or not cfg.get("model"):
+        return {
+            "ok": False,
+            "provider": cfg.get("provider"),
+            "error": "primary_ai_not_configured",
+            "text": "",
+        }
+
+    url = f"{cfg['base_url']}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {cfg['api_key']}",
+        "Content-Type": "application/json",
+    }
+
+    if cfg.get("provider") == "openrouter":
+        headers["HTTP-Referer"] = APP_URL
+        headers["X-Title"] = "PumpRadar"
+
+    payload = {
+        "model": cfg["model"],
+        "messages": [
+            {"role": "system", "content": system_instruction or ""},
+            {"role": "user", "content": user_prompt or ""},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    try:
+        def _request():
+            return requests.post(url, headers=headers, json=payload, timeout=45)
+
+        resp = await asyncio.to_thread(_request)
+        if resp.status_code >= 400:
+            return {
+                "ok": False,
+                "provider": cfg.get("provider"),
+                "status_code": resp.status_code,
+                "error": resp.text[:800],
+                "text": "",
+            }
+
+        data = resp.json() or {}
+        choices = data.get("choices") or []
+        text = ""
+        if choices:
+            text = ((choices[0].get("message") or {}).get("content") or "").strip()
+
+        return {
+            "ok": bool(text),
+            "provider": cfg.get("provider"),
+            "model": cfg.get("model"),
+            "text": text,
+            "raw": data,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "provider": cfg.get("provider"),
+            "error": str(exc),
+            "text": "",
+        }
+
+
+async def call_openai_compatible_json(
+    *,
+    system_instruction: str,
+    user_prompt: str,
+    temperature: float = 0.1,
+    max_tokens: int = 1800,
+) -> dict:
+    """Call primary OpenAI-compatible provider and parse strict JSON."""
+    import json as json_lib
+
+    result = await call_openai_compatible_text(
+        system_instruction=system_instruction,
+        user_prompt=user_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+    if not result.get("ok"):
+        return {
+            **result,
+            "json": None,
+        }
+
+    text_response = (result.get("text") or "").strip()
+    if text_response.startswith("```"):
+        text_response = "\n".join(
+            line for line in text_response.splitlines()
+            if not line.strip().startswith("```")
+        ).strip()
+
+    try:
+        parsed = json_lib.loads(text_response)
+        return {
+            **result,
+            "json": parsed,
+        }
+    except Exception as exc:
+        return {
+            **result,
+            "ok": False,
+            "error": f"json_parse_failed: {exc}",
+            "json": None,
+        }
+
+
 
 # Configure Stripe
 stripe.api_key = STRIPE_API_KEY
@@ -370,8 +533,15 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)
 async def get_optional_user(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> Optional[dict]:
     if not creds:
         return None
+
+    token = creds.credentials
+
     try:
-        payload = decode_token(creds.credentials)
+        if token.startswith("user-access-"):
+            legacy_auth_id = token.replace("user-access-", "", 1)
+            return await db.users.find_one({"legacy_auth_id": legacy_auth_id})
+
+        payload = decode_token(token)
         if payload.get("type") != "access":
             return None
         user_id = payload.get("sub")
@@ -1977,6 +2147,239 @@ def build_direction_audit(
         "contradiction_with_hint": contradiction,
     }
 
+
+def _clamp_score(value: Any, default: float = 0.0) -> int:
+    try:
+        if value is None or value == "":
+            value = default
+        return int(max(0, min(100, round(float(value)))))
+    except Exception:
+        return int(max(0, min(100, round(float(default)))))
+
+
+def build_signal_v2(
+    *,
+    symbol: str,
+    name: str,
+    chain: Optional[str],
+    contract_or_mint: Optional[str],
+    signal_type: str,
+    signal_strength: float,
+    confidence: Any,
+    risk_level: Any,
+    market: dict,
+    source_stack: dict,
+    manipulation_profile: dict,
+    decision_engine: dict,
+    rugpull_profile: dict,
+    asset_identity: dict,
+) -> dict:
+    """Signal Schema v2: additive dashboard payload for manipulation intelligence."""
+    signal_type = (signal_type or "pump").lower()
+    source_stack = source_stack or {}
+    manipulation_profile = manipulation_profile or {}
+    decision_engine = decision_engine or {}
+    rugpull_profile = rugpull_profile or {}
+    asset_identity = asset_identity or {}
+
+    signal_strength_score = _clamp_score(signal_strength)
+    manipulation_score = _clamp_score(manipulation_profile.get("manipulation_score"), signal_strength_score)
+    coordination_score = _clamp_score(
+        manipulation_profile.get("coordinated_hype_score")
+        or manipulation_profile.get("coordination_score")
+        or source_stack.get("telegram_score")
+    )
+    dump_risk_score = _clamp_score(
+        manipulation_profile.get("dump_risk_score")
+        or manipulation_profile.get("reversal_risk_score")
+        or rugpull_profile.get("rugpull_risk_score")
+    )
+    social_coordination_score = _clamp_score(
+        max(
+            float(source_stack.get("telegram_score") or 0),
+            float(source_stack.get("lunarcrush_score") or 0),
+            float(coordination_score or 0),
+        )
+    )
+    execution_score = _clamp_score(
+        decision_engine.get("execution_score")
+        or source_stack.get("execution_score")
+    )
+
+    source_tier = (source_stack.get("confirmation_tier") or "thin").strip().lower()
+    telegram_active = bool(source_stack.get("telegram_active"))
+    market_active = bool(source_stack.get("coingecko_market_active"))
+    execution_active = bool(source_stack.get("execution_active"))
+    lunar_active = bool(source_stack.get("lunarcrush_active"))
+
+    source_count = sum([telegram_active, market_active, execution_active, lunar_active])
+    noise_score = 25
+    if source_tier in {"thin", "single-source"}:
+        noise_score += 20
+    if telegram_active and not market_active:
+        noise_score += 15
+    if market_active and source_count >= 2:
+        noise_score -= 10
+    if execution_active:
+        noise_score -= 5
+    noise_score = _clamp_score(noise_score)
+
+    if signal_type == "dump":
+        manipulation_setup_score = _clamp_score(manipulation_score * 0.45 + dump_risk_score * 0.35 + social_coordination_score * 0.20)
+        pump_coordination_score = _clamp_score(coordination_score * 0.45)
+    else:
+        manipulation_setup_score = _clamp_score(manipulation_score * 0.45 + signal_strength_score * 0.30 + social_coordination_score * 0.25)
+        pump_coordination_score = _clamp_score(coordination_score or social_coordination_score)
+
+    phase = manipulation_profile.get("stage") or manipulation_profile.get("phase")
+    if not phase:
+        if signal_type == "dump" and dump_risk_score >= 70:
+            phase = "dump_distribution"
+        elif manipulation_setup_score >= 75 and social_coordination_score >= 55:
+            phase = "early_coordinated_push"
+        elif manipulation_setup_score >= 65:
+            phase = "breakout_active" if signal_type == "pump" else "dump_risk_active"
+        elif noise_score >= 65:
+            phase = "noise_only"
+        else:
+            phase = "early_setup"
+
+    timing = manipulation_profile.get("timing")
+    if not timing:
+        if phase in {"early_coordinated_push", "early_setup"}:
+            timing = "early"
+        elif phase in {"breakout_active", "dump_risk_active"}:
+            timing = "developing"
+        elif phase in {"late_chase", "distribution", "dump_distribution"}:
+            timing = "late"
+        else:
+            timing = "watch"
+
+    red_flags = []
+    for flag in (rugpull_profile.get("warnings") or []):
+        if isinstance(flag, str):
+            red_flags.append(flag)
+    if dump_risk_score >= 70:
+        red_flags.append("dump_distribution_risk")
+    if noise_score >= 65:
+        red_flags.append("high_noise_risk")
+    if source_tier in {"thin", "single-source"}:
+        red_flags.append("thin_source_stack")
+    if not contract_or_mint:
+        red_flags.append("contract_or_mint_not_resolved")
+
+    if signal_type == "dump":
+        if dump_risk_score >= 75:
+            verdict = "Strong Dump"
+            action = "sell_risk"
+        elif dump_risk_score >= 60:
+            verdict = "Dump Risk"
+            action = "watch_high_risk"
+        else:
+            verdict = "Distribution Risk"
+            action = "monitor"
+    else:
+        if manipulation_setup_score >= 82 and noise_score < 55:
+            verdict = "Strong Pump"
+            action = "watch_high_risk"
+        elif (
+            manipulation_setup_score >= 68 and social_coordination_score >= 50
+        ) or (
+            signal_strength_score >= 76 and source_tier in {"dual-source", "triple-source", "stacked"}
+        ):
+            verdict = "Coordinated Pump Watch"
+            action = "watch_high_risk"
+        elif (
+            manipulation_setup_score >= 52
+            or signal_strength_score >= 65
+            or source_tier in {"triple-source", "stacked"}
+        ):
+            verdict = "Pump Watch"
+            action = "watch"
+        elif noise_score >= 70:
+            verdict = "Noise"
+            action = "avoid"
+        else:
+            verdict = "No Signal"
+            action = "monitor"
+
+    trigger_parts = []
+    if telegram_active:
+        trigger_parts.append("Telegram calls")
+    if market_active:
+        trigger_parts.append("market anomaly")
+    if execution_active:
+        trigger_parts.append("verified trading venues")
+    if lunar_active:
+        trigger_parts.append("social metrics")
+    trigger = " + ".join(trigger_parts) if trigger_parts else "thin source stack"
+
+    why_now = []
+    if telegram_active:
+        why_now.append("Telegram source layer is active for this asset.")
+    if market_active:
+        why_now.append("Market structure shows abnormal movement or volume/market-cap activity.")
+    if execution_active:
+        why_now.append("Verified trade routes are available for execution.")
+    if dump_risk_score >= 60:
+        why_now.append("Dump or distribution risk is elevated.")
+    if not why_now:
+        why_now.append("Signal is still thin and needs more source confirmation.")
+
+    preferred_venue = decision_engine.get("preferred_venue") or {}
+    tradeability = {
+        "status": "tradable" if execution_active or preferred_venue else "unknown",
+        "primary_venue": preferred_venue.get("name"),
+        "venue_count": decision_engine.get("venue_count") or source_stack.get("verified_routes") or 0,
+        "liquidity_score": decision_engine.get("liquidity_score"),
+        "execution_score": execution_score,
+    }
+
+    return {
+        "schema_version": "signal_v2",
+        "symbol": symbol,
+        "name": name,
+        "chain": chain,
+        "contract_or_mint": contract_or_mint,
+        "direction": signal_type,
+        "verdict": verdict,
+        "action": action,
+        "confidence": _clamp_score(signal_strength_score if isinstance(confidence, str) else confidence, signal_strength_score),
+        "manipulation_setup_score": manipulation_setup_score,
+        "pump_coordination_score": pump_coordination_score,
+        "dump_distribution_score": dump_risk_score,
+        "noise_score": noise_score,
+        "social_coordination_score": social_coordination_score,
+        "whale_flow_score": None,
+        "smart_money_signal": "not_available",
+        "phase": phase,
+        "timing": timing,
+        "trigger": trigger,
+        "why_now": why_now,
+        "red_flags": sorted(set(red_flags)),
+        "source_stack": {
+            "labels": source_stack.get("labels") or [],
+            "confirmation_tier": source_tier,
+            "primary_driver": source_stack.get("primary_driver"),
+            "telegram": ["Telegram"] if telegram_active else [],
+            "market": ["CoinGecko/Dex market"] if market_active else [],
+            "social": ["LunarCrush"] if lunar_active else [],
+            "execution": ["CoinGecko venues"] if execution_active else [],
+            "reddit": [],
+            "x": [],
+            "safety": [],
+            "holders": [],
+        },
+        "tradeability": tradeability,
+        "explanation": {
+            "short": f"{verdict}: {trigger}.",
+            "detail": source_stack.get("summary") or manipulation_profile.get("summary") or "Signal v2 generated from current market, social and execution layers.",
+        },
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+
+
 def build_signal_source_stack(
     *,
     symbol: str,
@@ -2945,14 +3348,11 @@ async def analyze_signals_with_ai(candidates: List[dict], fear_greed: dict = Non
             reverse=True
         )[:10]
         
-        chat = genai.GenerativeModel(
-            model_name="gemini-2.0-flash",
-            system_instruction="""You are a quantitative crypto analyst. You analyze PRE-SCORED signals and provide scientific explanations.
+        system_instruction = """You are a quantitative crypto analyst. You analyze PRE-SCORED signals and provide scientific explanations.
 You MUST respond ONLY in valid JSON format, with no text before or after the JSON.
 All text in the response MUST be in English.
 Never respond in Romanian or any language other than English, even if the input prompt contains another language.
 Your analysis must be SPECIFIC with exact numbers and technical reasoning - no vague statements."""
-        )
         
         pump_data = "\n".join([
             f"{c['symbol']}: pump_score={c['pump_strength']}, price=${c['price']:.6f}, "
@@ -3021,25 +3421,28 @@ IMPORTANT:
 - Confidence levels: high (>75 score), medium (50-75), low (<50)
 - Risk levels based on volatility and market conditions"""
         
-        response = await asyncio.to_thread(lambda: chat.generate_content(prompt).text)
-        
-        # Parse JSON response
-        import json as json_lib
-        response_clean = response.strip()
-        if response_clean.startswith("```"):
-            lines = response_clean.split("\n")
-            response_clean = "\n".join([l for l in lines if not l.startswith("```")])
-        
-        result = json_lib.loads(response_clean)
-        return result
+        ai_result = await call_openai_compatible_json(
+            system_instruction=system_instruction,
+            user_prompt=prompt,
+            temperature=0.1,
+            max_tokens=1200,
+        )
+
+        if ai_result.get("ok") and ai_result.get("json"):
+            result = ai_result["json"]
+            result["ai_provider"] = ai_result.get("provider")
+            result["ai_model"] = ai_result.get("model")
+            return result
+
+        logger.warning(
+            "OpenAI/OpenRouter signal analysis failed - using quantitative fallback. provider=%s error=%s",
+            ai_result.get("provider"),
+            ai_result.get("error"),
+        )
+        return build_fallback_signal_analysis(scored_candidates, fear_greed, trending)
+
     except Exception as e:
-        err_text = str(e)
-        if "RESOURCE_EXHAUSTED" in err_text or "quota" in err_text.lower():
-            logger.warning("Gemini quota is exhausted right now - using quantitative fallback analysis")
-        elif "API_KEY_INVALID" in err_text or "api key not valid" in err_text.lower():
-            logger.warning("Gemini API key is invalid - using quantitative fallback analysis")
-        else:
-            logger.error(f"AI analysis error: {e}")
+        logger.error(f"OpenAI/OpenRouter signal analysis error - using quantitative fallback: {e}")
         return build_fallback_signal_analysis(scored_candidates if 'scored_candidates' in locals() else [], fear_greed, trending)
 
 async def fetch_and_store_signals(trigger: str = "scheduler"):
@@ -3403,6 +3806,22 @@ async def fetch_and_store_signals(trigger: str = "scheduler"):
                     social_volume=market.get("social_volume") or 0,
                     galaxy_score=market.get("galaxy_score") or 0,
                 )
+                signal_v2 = build_signal_v2(
+                    symbol=sym,
+                    name=market.get("name", sym),
+                    chain=market_platform,
+                    contract_or_mint=market_contract,
+                    signal_type=resolved_signal_type,
+                    signal_strength=sig.get("signal_strength", 0),
+                    confidence=sig.get("confidence", "medium"),
+                    risk_level=sig.get("risk_level", "medium"),
+                    market=market,
+                    source_stack=source_stack,
+                    manipulation_profile=manipulation_profile,
+                    decision_engine=decision_engine,
+                    rugpull_profile=rugpull_profile,
+                    asset_identity=asset_identity,
+                )
 
                 return {
                     **sig,
@@ -3434,6 +3853,7 @@ async def fetch_and_store_signals(trigger: str = "scheduler"):
                     "rugpull_profile": rugpull_profile,
                     "manipulation_profile": manipulation_profile,
                     "manipulation_timeline": manipulation_timeline,
+                    "signal_v2": signal_v2,
                     "timestamp": datetime.now(timezone.utc),
                 }
 
@@ -3540,10 +3960,162 @@ async def fetch_and_store_signals(trigger: str = "scheduler"):
                 stage_name = record.get("stage") or "unknown"
                 stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
 
+            geckoterminal_candidates = {
+                "generated_at": snapshot_at,
+                "solana_trending": fetch_geckoterminal_pool_candidates("solana", mode="trending", limit=12),
+                "solana_new": fetch_geckoterminal_pool_candidates("solana", mode="new", limit=12),
+                "ethereum_trending": fetch_geckoterminal_pool_candidates("ethereum", mode="trending", limit=8),
+            }
+
+            geckoterminal_experimental_signals = []
+            for bucket_name in ["solana_trending", "solana_new", "ethereum_trending"]:
+                for candidate in geckoterminal_candidates.get(bucket_name, []) or []:
+                    try:
+                        signal = build_geckoterminal_signal_v2(candidate)
+                        signal["candidate_bucket"] = bucket_name
+                        geckoterminal_experimental_signals.append(signal)
+                    except Exception as exc:
+                        logger.warning("Failed to build GeckoTerminal signal_v2 for %s: %s", candidate.get("symbol"), exc)
+
+            def geckoterminal_has_unsafe_name(item: dict) -> bool:
+                text = f"{item.get('symbol') or ''} {item.get('name') or ''}".strip().lower()
+                unsafe_terms = {
+                    "porn", "pornhub", "sex", "xxx", "hentai", "shit", "fuck",
+                    "nazi", "hitler", "rape", "cum", "dick", "pussy"
+                }
+                return any(term in text for term in unsafe_terms)
+
+            for item in geckoterminal_experimental_signals:
+                unsafe_name = geckoterminal_has_unsafe_name(item)
+                item["unsafe_symbol_name"] = unsafe_name
+                if unsafe_name:
+                    flags = list(item.get("red_flags") or [])
+                    flags.append("unsafe_symbol_name")
+                    item["red_flags"] = sorted(set(flags))
+
+            verdict_priority = {
+                "High-Risk Pump": 90,
+                "Dump Risk": 85,
+                "Pump Watch": 80,
+                "Distribution": 70,
+                "Early DEX Watch": 60,
+                "Noise": 10,
+            }
+
+            def geckoterminal_dedupe_key(item: dict) -> str:
+                return (
+                    item.get("contract_or_mint")
+                    or item.get("pool_address")
+                    or f"{item.get('chain') or 'unknown'}:{item.get('symbol') or 'unknown'}"
+                )
+
+            def geckoterminal_rank(item: dict) -> tuple:
+                return (
+                    verdict_priority.get(item.get("verdict"), 0),
+                    float(item.get("manipulation_setup_score") or 0),
+                    float(item.get("confidence") or 0),
+                    -float(item.get("noise_score") or 0),
+                )
+
+            deduped_geckoterminal_signals_by_key = {}
+            for item in geckoterminal_experimental_signals:
+                key = geckoterminal_dedupe_key(item)
+                current = deduped_geckoterminal_signals_by_key.get(key)
+                if current is None or geckoterminal_rank(item) > geckoterminal_rank(current):
+                    deduped_geckoterminal_signals_by_key[key] = item
+
+            geckoterminal_experimental_signals = list(deduped_geckoterminal_signals_by_key.values())
+
+            geckoterminal_experimental_signals.sort(
+                key=lambda item: geckoterminal_rank(item),
+                reverse=True,
+            )
+
+            actionable_verdicts = {
+                "High-Risk Pump",
+                "Pump Watch",
+                "Early DEX Watch",
+                "Dump Risk",
+                "Distribution",
+            }
+
+            actionable_geckoterminal_candidates = [
+                item for item in geckoterminal_experimental_signals
+                if item.get("verdict") in actionable_verdicts
+                and not item.get("unsafe_symbol_name")
+            ]
+
+            unsafe_geckoterminal = [
+                item for item in geckoterminal_experimental_signals
+                if item.get("unsafe_symbol_name")
+            ]
+
+            def geckoterminal_quality_gate(item: dict) -> bool:
+                verdict = item.get("verdict")
+                confidence = float(item.get("confidence") or 0)
+                red_flags = set(item.get("red_flags") or [])
+
+                if verdict in {"High-Risk Pump", "Pump Watch"}:
+                    return confidence >= 50
+                if verdict == "Early DEX Watch":
+                    return confidence >= 45
+                if verdict == "Dump Risk":
+                    return confidence >= 50 or "pump_then_reversal" in red_flags
+                if verdict == "Distribution":
+                    return confidence >= 45
+                return False
+
+            quality_pass_geckoterminal = [
+                item for item in actionable_geckoterminal_candidates
+                if geckoterminal_quality_gate(item)
+            ]
+
+            avoid_geckoterminal = [
+                item for item in quality_pass_geckoterminal
+                if item.get("action") == "avoid"
+            ]
+
+            actionable_geckoterminal_signals = [
+                item for item in quality_pass_geckoterminal
+                if item.get("action") != "avoid"
+            ]
+
+            low_quality_geckoterminal = [
+                item for item in actionable_geckoterminal_candidates
+                if not geckoterminal_quality_gate(item)
+            ]
+
+            rejected_geckoterminal_noise = [
+                item for item in geckoterminal_experimental_signals
+                if item.get("verdict") == "Noise"
+            ]
+
+            experimental_signals_v2 = {
+                "generated_at": snapshot_at,
+                "geckoterminal": geckoterminal_experimental_signals[:40],
+                "actionable_geckoterminal": actionable_geckoterminal_signals[:25],
+                "avoid_geckoterminal": avoid_geckoterminal[:25],
+                "low_quality_geckoterminal": low_quality_geckoterminal[:25],
+                "unsafe_geckoterminal": unsafe_geckoterminal[:25],
+                "rejected_geckoterminal_noise": rejected_geckoterminal_noise[:40],
+                "summary": {
+                    "geckoterminal_total": len(geckoterminal_experimental_signals),
+                    "actionable_geckoterminal_count": len(actionable_geckoterminal_signals),
+                    "avoid_geckoterminal_count": len(avoid_geckoterminal),
+                    "low_quality_geckoterminal_count": len(low_quality_geckoterminal),
+                    "unsafe_geckoterminal_count": len(unsafe_geckoterminal),
+                    "rejected_geckoterminal_noise_count": len(rejected_geckoterminal_noise),
+                    "geckoterminal_deduped_count": len(deduped_geckoterminal_signals_by_key),
+                    "unsafe_symbol_name_count": len([item for item in geckoterminal_experimental_signals if item.get("unsafe_symbol_name")]),
+                },
+            }
+
             snapshot = {
                 "timestamp": snapshot_at,
                 "pump_signals": pump_signals,
                 "dump_signals": dump_signals,
+                "geckoterminal_candidates": geckoterminal_candidates,
+                "experimental_signals_v2": experimental_signals_v2,
                 "telegram_early_signals": telegram_early_signals,
                 "telegram_pipeline_audit": {
                     "window_hours": TELEGRAM_EARLY_SIGNAL_HOURS,
@@ -3753,6 +4325,154 @@ async def build_dashboard_new_algorithm_signals(snapshot: Optional[dict], limit:
 
     filtered_rows.sort(key=lambda item: float(item.get("_display_score", 0) or 0), reverse=True)
     return set_memory_cache(NEW_ALGORITHM_SIGNALS_CACHE, cache_key, filtered_rows[:limit])
+
+
+
+@app.get("/api/crypto/experimental/geckoterminal/summary")
+async def get_experimental_geckoterminal_summary():
+    """Return compact summary for experimental GeckoTerminal Signal v2 buckets."""
+    snapshot = await db.signal_snapshots.find_one({}, sort=[("timestamp", -1)])
+    if not snapshot:
+        return api_ok({
+            "timestamp": None,
+            "summary": {},
+            "top_actionable": [],
+            "top_avoid": [],
+            "top_unsafe": [],
+        })
+
+    experimental = snapshot.get("experimental_signals_v2") or {}
+
+    def compact_item(item: dict) -> dict:
+        solana_safety = item.get("solana_safety") or {}
+        solana_dex_context = item.get("solana_dex_context") or {}
+        return {
+            "symbol": item.get("symbol"),
+            "name": item.get("name"),
+            "chain": item.get("chain"),
+            "dex": item.get("dex"),
+            "direction": item.get("direction"),
+            "verdict": item.get("verdict"),
+            "action": item.get("action"),
+            "confidence": item.get("confidence"),
+            "manipulation_setup_score": item.get("manipulation_setup_score"),
+            "noise_score": item.get("noise_score"),
+            "unsafe_symbol_name": item.get("unsafe_symbol_name"),
+            "red_flags": item.get("red_flags") or [],
+            "contract_or_mint": item.get("contract_or_mint"),
+            "pool_url": item.get("pool_url"),
+            "reserve_usd": ((item.get("tradeability") or {}).get("reserve_usd")),
+            "volume_h24": ((item.get("tradeability") or {}).get("volume_h24")),
+            "trigger": item.get("trigger"),
+
+            "dex_family": solana_dex_context.get("dex_family"),
+            "launch_context": solana_dex_context.get("launch_context"),
+            "is_pumpfun_related": solana_dex_context.get("is_pumpfun_related"),
+            "is_new_pool": solana_dex_context.get("is_new_pool"),
+            "is_trending_pool": solana_dex_context.get("is_trending_pool"),
+            "solana_meme_risk_flags": solana_dex_context.get("solana_meme_risk_flags") or [],
+
+            "solana_safety_status": solana_safety.get("solana_safety_status"),
+            "solana_safety_available": solana_safety.get("available"),
+            "holder_count": solana_safety.get("holder_count"),
+            "top_holder_percent": solana_safety.get("top_holder_percent"),
+            "safety_red_flags": solana_safety.get("safety_red_flags") or [],
+        }
+
+    actionable = experimental.get("actionable_geckoterminal") or []
+    avoid = experimental.get("avoid_geckoterminal") or []
+    unsafe = experimental.get("unsafe_geckoterminal") or []
+
+    summary = dict(experimental.get("summary") or {})
+    all_items = (
+        list(experimental.get("actionable_geckoterminal") or [])
+        + list(experimental.get("avoid_geckoterminal") or [])
+        + list(experimental.get("low_quality_geckoterminal") or [])
+        + list(experimental.get("unsafe_geckoterminal") or [])
+        + list(experimental.get("rejected_geckoterminal_noise") or [])
+    )
+
+    solana_items = [item for item in all_items if item.get("chain") == "solana"]
+    solana_safety_available = [
+        item for item in solana_items
+        if (item.get("solana_safety") or {}).get("available")
+    ]
+    solana_holder_available = [
+        item for item in solana_items
+        if (item.get("solana_safety") or {}).get("holder_count") is not None
+        or (item.get("solana_safety") or {}).get("top_holder_percent") is not None
+    ]
+    solana_risk_flags = [
+        item for item in solana_items
+        if (item.get("solana_safety") or {}).get("safety_red_flags")
+    ]
+
+    solana_dex_context_available = [
+        item for item in solana_items
+        if (item.get("solana_dex_context") or {}).get("available")
+    ]
+    solana_new_pool = [
+        item for item in solana_items
+        if (item.get("solana_dex_context") or {}).get("is_new_pool")
+    ]
+    solana_pumpfun_related = [
+        item for item in solana_items
+        if (item.get("solana_dex_context") or {}).get("is_pumpfun_related")
+    ]
+
+    summary.update({
+        "solana_geckoterminal_count": len(solana_items),
+        "solana_safety_available_count": len(solana_safety_available),
+        "solana_holder_available_count": len(solana_holder_available),
+        "solana_safety_risk_flags_count": len(solana_risk_flags),
+        "solana_dex_context_available_count": len(solana_dex_context_available),
+        "solana_new_pool_count": len(solana_new_pool),
+        "solana_pumpfun_related_count": len(solana_pumpfun_related),
+    })
+
+    return api_ok({
+        "timestamp": snapshot.get("timestamp"),
+        "summary": summary,
+        "top_actionable": [compact_item(item) for item in actionable[:10]],
+        "top_avoid": [compact_item(item) for item in avoid[:10]],
+        "top_unsafe": [compact_item(item) for item in unsafe[:10]],
+    })
+
+
+
+@app.get("/api/crypto/experimental/geckoterminal")
+async def get_experimental_geckoterminal_signals():
+    """Return latest experimental GeckoTerminal Signal v2 buckets.
+
+    Internal/testing endpoint only.
+    Does not affect the main dashboard, pump_signals, or dump_signals.
+    """
+    snapshot = await db.signal_snapshots.find_one({}, sort=[("timestamp", -1)])
+    if not snapshot:
+        return api_ok({
+            "timestamp": None,
+            "summary": {},
+            "actionable_geckoterminal": [],
+            "avoid_geckoterminal": [],
+            "low_quality_geckoterminal": [],
+            "unsafe_geckoterminal": [],
+            "rejected_geckoterminal_noise": [],
+            "geckoterminal": [],
+        })
+
+    experimental = snapshot.get("experimental_signals_v2") or {}
+
+    return api_ok({
+        "timestamp": snapshot.get("timestamp"),
+        "summary": experimental.get("summary") or {},
+        "actionable_geckoterminal": experimental.get("actionable_geckoterminal") or [],
+        "avoid_geckoterminal": experimental.get("avoid_geckoterminal") or [],
+        "low_quality_geckoterminal": experimental.get("low_quality_geckoterminal") or [],
+        "unsafe_geckoterminal": experimental.get("unsafe_geckoterminal") or [],
+        "rejected_geckoterminal_noise": experimental.get("rejected_geckoterminal_noise") or [],
+        "geckoterminal": experimental.get("geckoterminal") or [],
+    })
+
 
 @app.get("/api/crypto/signals")
 async def get_signals(user=Depends(get_optional_user)):
@@ -5167,15 +5887,25 @@ RESPONSE GUIDELINES:
 
 If asked about a specific coin, check if it's in our current signals and provide details."""
         
-        chat = genai.GenerativeModel(
-            model_name="gemini-2.0-flash",
-            system_instruction=system_instruction
+        ai_result = await call_openai_compatible_text(
+            system_instruction=system_instruction,
+            user_prompt=req.message,
+            temperature=0.3,
+            max_tokens=900,
         )
-        
-        response = await asyncio.to_thread(lambda: chat.generate_content(req.message).text)
-        return api_ok({"reply": response})
-    except Exception as e:
-        logger.error(f"AI chat error: {e}")
+
+        if ai_result.get("ok") and ai_result.get("text"):
+            return api_ok({
+                "reply": ai_result.get("text"),
+                "ai_provider": ai_result.get("provider"),
+                "ai_model": ai_result.get("model"),
+            })
+
+        logger.warning(
+            "OpenAI/OpenRouter chat failed - using local fallback. provider=%s error=%s",
+            ai_result.get("provider"),
+            ai_result.get("error"),
+        )
         return api_ok({
             "reply": build_fallback_chat_reply(
                 req.message,
@@ -5185,7 +5915,22 @@ If asked about a specific coin, check if it's in our current signals and provide
                 fear_greed,
                 trending,
                 user_sub,
-            )
+            ),
+            "ai_provider": "local_fallback",
+        })
+    except Exception as e:
+        logger.error(f"OpenAI/OpenRouter chat error - using local fallback: {e}")
+        return api_ok({
+            "reply": build_fallback_chat_reply(
+                req.message,
+                pump_signals,
+                dump_signals,
+                summary,
+                fear_greed,
+                trending,
+                user_sub,
+            ),
+            "ai_provider": "local_fallback",
         })
 
 # ─────────────────────────────────────────────
@@ -5641,6 +6386,109 @@ def get_goplus_security(platform: Optional[str], contract_address: Optional[str]
     except Exception as e:
         logger.error(f"GoPlus security error for {platform}:{contract_address}: {e}")
         return {"available": False}
+
+
+def normalize_solana_goplus_safety(goplus_result: dict) -> dict:
+    """Normalize GoPlus Solana token_security response into compact safety fields.
+
+    Additive helper for experimental Solana safety.
+    """
+    result = goplus_result or {}
+    data = result.get("data") or {}
+    if not result.get("available") or not data:
+        return {
+            "available": False,
+            "source": "GoPlus Solana",
+            "solana_safety_status": "unavailable",
+            "safety_red_flags": ["solana_safety_unavailable"],
+        }
+
+    def status_value(field: str):
+        value = data.get(field)
+        if isinstance(value, dict):
+            return str(value.get("status", "")).strip()
+        return str(value).strip() if value is not None else ""
+
+    def is_enabled(field: str) -> bool:
+        return status_value(field) == "1"
+
+    red_flags = []
+
+    mintable = is_enabled("mintable")
+    freezable = is_enabled("freezable")
+    closable = is_enabled("closable")
+    metadata_mutable = is_enabled("metadata_mutable")
+    balance_mutable_authority = is_enabled("balance_mutable_authority")
+    default_account_state_upgradable = is_enabled("default_account_state_upgradable")
+    transfer_fee_upgradable = is_enabled("transfer_fee_upgradable")
+    transfer_hook_upgradable = is_enabled("transfer_hook_upgradable")
+
+    if mintable:
+        red_flags.append("solana_mintable")
+    if freezable:
+        red_flags.append("solana_freezable")
+    if closable:
+        red_flags.append("solana_closable")
+    if metadata_mutable:
+        red_flags.append("metadata_mutable")
+    if balance_mutable_authority:
+        red_flags.append("balance_mutable_authority")
+    if default_account_state_upgradable:
+        red_flags.append("default_account_state_upgradable")
+    if transfer_fee_upgradable:
+        red_flags.append("transfer_fee_upgradable")
+    if transfer_hook_upgradable:
+        red_flags.append("transfer_hook_upgradable")
+
+    holders = data.get("holders") or []
+    holder_count_raw = data.get("holder_count")
+    try:
+        holder_count = int(float(holder_count_raw)) if holder_count_raw not in (None, "") else None
+    except Exception:
+        holder_count = None
+
+    top_holder_percent = None
+    if holders:
+        try:
+            top_holder_percent = max(float(h.get("percent") or 0) for h in holders)
+        except Exception:
+            top_holder_percent = None
+
+    if top_holder_percent is not None:
+        if top_holder_percent >= 0.30:
+            red_flags.append("top_holder_high_concentration")
+        elif top_holder_percent >= 0.15:
+            red_flags.append("top_holder_elevated_concentration")
+
+    if holder_count is not None and holder_count < 100:
+        red_flags.append("low_holder_count")
+
+    trusted_token = str(data.get("trusted_token", "0")) == "1"
+
+    if red_flags:
+        status = "risk_flags"
+    elif trusted_token:
+        status = "trusted_no_flags"
+    else:
+        status = "no_major_flags"
+
+    return {
+        "available": True,
+        "source": result.get("source") or "GoPlus Solana",
+        "solana_safety_status": status,
+        "mintable": mintable,
+        "freezable": freezable,
+        "closable": closable,
+        "metadata_mutable": metadata_mutable,
+        "balance_mutable_authority": balance_mutable_authority,
+        "default_account_state_upgradable": default_account_state_upgradable,
+        "transfer_fee_upgradable": transfer_fee_upgradable,
+        "transfer_hook_upgradable": transfer_hook_upgradable,
+        "trusted_token": trusted_token,
+        "holder_count": holder_count,
+        "top_holder_percent": top_holder_percent,
+        "safety_red_flags": sorted(set(red_flags)),
+    }
 
 def get_goplus_rugpull(platform: Optional[str], contract_address: Optional[str]) -> dict:
     if not platform or not contract_address or platform == "solana":
@@ -6299,6 +7147,660 @@ def build_coin_analysis_sections(
         },
     ]
     return sections
+
+
+
+
+def build_solana_dex_context(candidate: dict) -> dict:
+    """Normalize Solana DEX / launch context from GeckoTerminal candidate fields."""
+    candidate = candidate or {}
+    dex_text = str(candidate.get("dex") or "").lower()
+    mode = str(candidate.get("mode") or "").lower()
+    origin = str(candidate.get("candidate_origin") or "").lower()
+    pool_created_at = candidate.get("pool_created_at")
+
+    if "pump.fun" in dex_text:
+        dex_family = "pumpfun"
+    elif "pumpswap" in dex_text:
+        dex_family = "pumpswap"
+    elif "meteora" in dex_text:
+        dex_family = "meteora"
+    elif "raydium" in dex_text:
+        dex_family = "raydium"
+    elif "orca" in dex_text:
+        dex_family = "orca"
+    else:
+        dex_family = "other"
+
+    is_new_pool = mode in {"new", "new_pools"} or "new_pools" in origin
+    is_trending_pool = mode == "trending" or "trending_pools" in origin
+    is_pumpfun_related = dex_family in {"pumpfun", "pumpswap"} or str(candidate.get("token_address") or "").lower().endswith("pump")
+
+    reserve_usd = safe_float(candidate.get("reserve_usd")) or 0
+    volume = candidate.get("volume_usd") or {}
+    changes = candidate.get("price_change_pct") or {}
+
+    volume_h1 = safe_float(volume.get("h1")) or 0
+    volume_h24 = safe_float(volume.get("h24")) or 0
+    change_h1 = safe_float(changes.get("h1")) or 0
+    change_h24 = safe_float(changes.get("h24")) or 0
+    vl_h1 = safe_float(candidate.get("volume_liquidity_ratio_h1")) or 0
+    vl_h24 = safe_float(candidate.get("volume_liquidity_ratio_h24")) or 0
+
+    flags = []
+
+    if is_new_pool:
+        flags.append("solana_new_pool")
+    if is_pumpfun_related:
+        flags.append("pumpfun_related")
+    if reserve_usd and reserve_usd < 2500:
+        flags.append("very_thin_solana_liquidity")
+    elif reserve_usd and reserve_usd < 10000:
+        flags.append("thin_solana_liquidity")
+    if vl_h24 >= 30 or vl_h1 >= 5:
+        flags.append("high_solana_volume_liquidity_ratio")
+    if abs(change_h1) >= 50 or abs(change_h24) >= 300:
+        flags.append("extreme_solana_price_move")
+    if is_new_pool and reserve_usd < 10000:
+        flags.append("new_pool_low_liquidity")
+    if is_pumpfun_related and is_new_pool:
+        flags.append("pumpfun_new_launch_context")
+
+    if is_new_pool:
+        launch_context = "new_pool"
+    elif is_pumpfun_related and is_trending_pool:
+        launch_context = "active_meme_pool"
+    elif is_trending_pool:
+        launch_context = "trending_pool"
+    else:
+        launch_context = "dex_pool"
+
+    if dex_family in {"meteora", "raydium", "orca"} and not is_new_pool:
+        launch_context = "post_launch_dex_pool"
+
+    return {
+        "available": True,
+        "source": "GeckoTerminal Solana DEX context",
+        "dex_family": dex_family,
+        "launch_context": launch_context,
+        "is_pumpfun_related": is_pumpfun_related,
+        "is_new_pool": is_new_pool,
+        "is_trending_pool": is_trending_pool,
+        "pool_created_at": pool_created_at,
+        "reserve_usd": reserve_usd,
+        "volume_h1": volume_h1,
+        "volume_h24": volume_h24,
+        "volume_liquidity_ratio_h1": vl_h1,
+        "volume_liquidity_ratio_h24": vl_h24,
+        "price_change_h1": change_h1,
+        "price_change_h24": change_h24,
+        "solana_meme_risk_flags": sorted(set(flags)),
+    }
+
+def build_geckoterminal_signal_v2(candidate: dict) -> dict:
+    """Build experimental Signal Schema v2 payload from a GeckoTerminal pool candidate.
+
+    Additive only:
+    - does not modify pump_signals/dump_signals
+    - does not feed the main dashboard yet
+    - intended for experimental_signals_v2.geckoterminal in snapshots
+    """
+    candidate = candidate or {}
+
+    symbol = (candidate.get("symbol") or "UNKNOWN").upper()
+    name = candidate.get("name") or symbol
+    chain = candidate.get("chain") or candidate.get("network")
+    direction = (candidate.get("direction_hint") or "pump").lower()
+    if direction not in {"pump", "dump"}:
+        direction = "pump"
+
+    score = _clamp_score(candidate.get("dex_candidate_score"), 0)
+    reserve_usd = safe_float(candidate.get("reserve_usd")) or 0
+    volume = candidate.get("volume_usd") or {}
+    changes = candidate.get("price_change_pct") or {}
+    tx = candidate.get("transactions") or {}
+
+    volume_h1 = safe_float(volume.get("h1")) or 0
+    volume_h24 = safe_float(volume.get("h24")) or 0
+    change_m5 = safe_float(changes.get("m5")) or 0
+    change_h1 = safe_float(changes.get("h1")) or 0
+    change_h24 = safe_float(changes.get("h24")) or 0
+    vl_h1 = safe_float(candidate.get("volume_liquidity_ratio_h1")) or 0
+    vl_h24 = safe_float(candidate.get("volume_liquidity_ratio_h24")) or 0
+    bs_h1 = safe_float(tx.get("h1_buy_sell_ratio")) or 0
+    bs_h24 = safe_float(tx.get("h24_buy_sell_ratio")) or 0
+
+    abs_h1 = abs(change_h1)
+    abs_h24 = abs(change_h24)
+
+    manipulation_setup_score = _clamp_score(
+        score * 0.45
+        + min(35, vl_h1 * 7)
+        + min(25, vl_h24 * 0.9)
+        + min(20, abs_h1 * 0.35)
+    )
+
+    if direction == "dump":
+        pump_coordination_score = 0
+        dump_distribution_score = _clamp_score(
+            score * 0.35
+            + min(35, abs_h1 * 0.45)
+            + min(20, max(0, 1 - bs_h1) * 20)
+            + min(20, vl_h1 * 5)
+        )
+    else:
+        pump_coordination_score = _clamp_score(
+            score * 0.40
+            + min(30, max(0, bs_h1 - 1) * 18)
+            + min(30, abs_h1 * 0.25)
+        )
+        dump_distribution_score = _clamp_score(
+            min(35, max(0, vl_h24 - 20) * 1.2)
+            + min(25, max(0, abs_h24 - 250) * 0.08)
+            + (20 if reserve_usd and reserve_usd < 50000 else 0)
+        )
+
+    noise_score = 30
+    red_flags = ["dex_only_signal", "safety_not_connected", "holders_not_connected"]
+
+    if reserve_usd and reserve_usd < 25000:
+        noise_score += 20
+        red_flags.append("thin_liquidity")
+    elif reserve_usd and reserve_usd < 75000:
+        noise_score += 10
+        red_flags.append("limited_liquidity")
+
+    if vl_h24 >= 30 or vl_h1 >= 5:
+        noise_score += 15
+        red_flags.append("high_volume_liquidity_ratio")
+
+    if abs_h1 >= 100 or abs_h24 >= 500:
+        noise_score += 10
+        red_flags.append("extreme_price_move")
+
+    if (tx.get("h1_buys") or 0) + (tx.get("h1_sells") or 0) < 20:
+        noise_score += 10
+        red_flags.append("low_transaction_sample")
+
+    if change_h24 >= 100 and change_h1 <= -5:
+        red_flags.append("pump_then_reversal")
+
+    noise_score = _clamp_score(noise_score)
+
+    if direction == "dump":
+        strong_dump_context = dump_distribution_score >= 55 or (score >= 60 and abs_h1 >= 15)
+        distribution_context = (
+            score >= 35
+            and (
+                abs_h1 >= 5
+                or abs_h24 >= 25
+                or (change_h24 >= 100 and change_h1 <= -5)
+            )
+        )
+
+        if strong_dump_context:
+            verdict = "Dump Risk"
+            action = "watch_risk" if dump_distribution_score < 75 else "avoid"
+            phase = "dump_risk_active"
+        elif distribution_context:
+            verdict = "Distribution"
+            action = "watch_risk"
+            phase = "sell_pressure"
+        else:
+            verdict = "Noise"
+            action = "avoid"
+            phase = "weak_dex_dump_noise"
+    else:
+        if manipulation_setup_score >= 75 and noise_score >= 55:
+            verdict = "High-Risk Pump"
+            action = "watch_high_risk"
+        elif manipulation_setup_score >= 65:
+            verdict = "Pump Watch"
+            action = "watch"
+        elif score >= 45:
+            verdict = "Early DEX Watch"
+            action = "watch"
+        else:
+            verdict = "Noise"
+            action = "avoid"
+        phase = "dex_breakout_active" if manipulation_setup_score >= 65 else "early_dex_setup"
+
+    if abs(change_m5) >= 20 or abs_h1 >= 60:
+        timing = "developing"
+    elif candidate.get("mode") in {"new", "new_pools"}:
+        timing = "early"
+    elif abs_h24 >= 300:
+        timing = "late"
+    else:
+        timing = "watch"
+
+    solana_dex_context = {
+        "available": False,
+        "source": "GeckoTerminal Solana DEX context",
+        "dex_family": None,
+        "launch_context": None,
+        "solana_meme_risk_flags": [],
+    }
+
+    if str(chain or "").lower() == "solana":
+        try:
+            solana_dex_context = build_solana_dex_context(candidate)
+            for flag in solana_dex_context.get("solana_meme_risk_flags") or []:
+                red_flags.append(flag)
+        except Exception as exc:
+            logger.warning("Failed Solana DEX context for %s: %s", symbol, exc)
+            solana_dex_context = {
+                "available": False,
+                "source": "GeckoTerminal Solana DEX context",
+                "dex_family": None,
+                "launch_context": "unknown",
+                "solana_meme_risk_flags": ["solana_dex_context_error"],
+            }
+            red_flags.append("solana_dex_context_error")
+
+    solana_safety = {
+        "available": False,
+        "source": "GoPlus Solana",
+        "solana_safety_status": "not_applicable",
+        "safety_red_flags": [],
+    }
+
+    if str(chain or "").lower() == "solana" and candidate.get("token_address"):
+        try:
+            solana_safety = normalize_solana_goplus_safety(
+                get_goplus_security("solana", candidate.get("token_address"))
+            )
+            for flag in solana_safety.get("safety_red_flags") or []:
+                red_flags.append(flag)
+        except Exception as exc:
+            logger.warning("Failed Solana GoPlus safety for %s: %s", symbol, exc)
+            solana_safety = {
+                "available": False,
+                "source": "GoPlus Solana",
+                "solana_safety_status": "error",
+                "safety_red_flags": ["solana_safety_error"],
+            }
+            red_flags.append("solana_safety_error")
+
+    source_stack = candidate.get("source_stack_hint") or {
+        "dex": ["GeckoTerminal", candidate.get("dex")],
+        "market": ["GeckoTerminal"],
+        "social": [],
+        "reddit": [],
+        "x": [],
+        "safety": [],
+        "holders": [],
+    }
+
+    if solana_dex_context.get("available"):
+        dex_sources = list(source_stack.get("dex") or [])
+        dex_sources.append("GeckoTerminal Solana DEX context")
+        source_stack["dex"] = sorted(set(dex_sources))
+
+    if solana_safety.get("available"):
+        red_flags = [flag for flag in red_flags if flag != "safety_not_connected"]
+
+        if solana_safety.get("holder_count") is not None or solana_safety.get("top_holder_percent") is not None:
+            red_flags = [flag for flag in red_flags if flag != "holders_not_connected"]
+
+        safety_sources = list(source_stack.get("safety") or [])
+        safety_sources.append("GoPlus Solana")
+        source_stack["safety"] = sorted(set(safety_sources))
+
+        if solana_safety.get("holder_count") is not None or solana_safety.get("top_holder_percent") is not None:
+            holder_sources = list(source_stack.get("holders") or [])
+            holder_sources.append("GoPlus Solana")
+            source_stack["holders"] = sorted(set(holder_sources))
+
+    why_now = []
+    if vl_h24:
+        why_now.append(f"24h volume/liquidity ratio is {round(vl_h24, 2)}")
+    if vl_h1:
+        why_now.append(f"1h volume/liquidity ratio is {round(vl_h1, 2)}")
+    if change_h1:
+        why_now.append(f"1h price move is {round(change_h1, 2)}%")
+    if change_h24:
+        why_now.append(f"24h price move is {round(change_h24, 2)}%")
+    if solana_dex_context.get("launch_context"):
+        why_now.append(f"Solana DEX context: {solana_dex_context.get('launch_context')}")
+
+    if candidate.get("candidate_origin"):
+        why_now.append(f"Detected from {candidate.get('candidate_origin')}")
+
+    if not why_now:
+        why_now.append("Detected by GeckoTerminal DEX discovery layer")
+
+    trigger_parts = ["GeckoTerminal DEX pool"]
+    if candidate.get("dex"):
+        trigger_parts.append(str(candidate.get("dex")))
+    if vl_h24 >= 20 or vl_h1 >= 5:
+        trigger_parts.append("high volume/liquidity ratio")
+    if abs_h1 >= 25 or abs_h24 >= 100:
+        trigger_parts.append("strong price movement")
+    if solana_dex_context.get("launch_context"):
+        trigger_parts.append(str(solana_dex_context.get("launch_context")))
+
+    return {
+        "schema_version": "signal_v2",
+        "experimental": True,
+        "source": "geckoterminal",
+        "symbol": symbol,
+        "name": name,
+        "chain": chain,
+        "contract_or_mint": candidate.get("token_address"),
+        "pool_address": candidate.get("pool_address"),
+        "pool_url": candidate.get("pool_url"),
+        "dex": candidate.get("dex"),
+        "direction": direction,
+        "verdict": verdict,
+        "action": action,
+        "confidence": score,
+        "manipulation_setup_score": manipulation_setup_score,
+        "pump_coordination_score": pump_coordination_score,
+        "dump_distribution_score": dump_distribution_score,
+        "noise_score": noise_score,
+        "social_coordination_score": 0,
+        "whale_flow_score": 0,
+        "smart_money_signal": "unknown",
+        "phase": phase,
+        "timing": timing,
+        "trigger": " + ".join([part for part in trigger_parts if part]),
+        "why_now": why_now[:6],
+        "red_flags": sorted(set(red_flags)),
+        "solana_dex_context": solana_dex_context,
+        "solana_safety": solana_safety,
+        "source_stack": source_stack,
+        "tradeability": {
+            "status": "dex_available",
+            "primary_venue": candidate.get("dex"),
+            "network": candidate.get("network"),
+            "reserve_usd": reserve_usd,
+            "volume_h1": volume_h1,
+            "volume_h24": volume_h24,
+            "buy_sell_ratio_h1": bs_h1,
+            "buy_sell_ratio_h24": bs_h24,
+        },
+        "market_context": {
+            "price_usd": candidate.get("price_usd"),
+            "fdv_usd": candidate.get("fdv_usd"),
+            "market_cap_usd": candidate.get("market_cap_usd"),
+            "reserve_usd": reserve_usd,
+            "volume_usd": volume,
+            "price_change_pct": changes,
+            "transactions": tx,
+            "volume_liquidity_ratio_h1": vl_h1,
+            "volume_liquidity_ratio_h24": vl_h24,
+        },
+        "source_layers": {
+            "market": {
+                "available": True,
+                "sources": ["GeckoTerminal"],
+                "status": "active",
+            },
+            "dex": {
+                "available": True,
+                "sources": sorted(set([x for x in ["GeckoTerminal", candidate.get("dex")] if x])),
+                "status": "active",
+            },
+            "solana_dex_context": {
+                "available": bool(solana_dex_context.get("available")),
+                "source": solana_dex_context.get("source"),
+                "status": "active" if solana_dex_context.get("available") else "inactive",
+            },
+            "safety": {
+                "available": bool(solana_safety.get("available")),
+                "sources": source_stack.get("safety") or [],
+                "status": "active" if solana_safety.get("available") else "not_connected",
+            },
+            "holders": {
+                "available": solana_safety.get("holder_count") is not None or solana_safety.get("top_holder_percent") is not None,
+                "sources": source_stack.get("holders") or [],
+                "status": "active" if (solana_safety.get("holder_count") is not None or solana_safety.get("top_holder_percent") is not None) else "not_connected",
+            },
+            "telegram": {
+                "available": False,
+                "sources": [],
+                "status": "not_connected_for_geckoterminal_experimental",
+            },
+            "reddit": {
+                "available": False,
+                "sources": [],
+                "status": "planned",
+            },
+            "x": {
+                "available": False,
+                "sources": [],
+                "status": "planned_confirmation_layer",
+            },
+            "ai_judge": {
+                "available": False,
+                "provider": None,
+                "model": None,
+                "status": "fallback_local_only_for_geckoterminal_experimental",
+            },
+        },
+        "social_layer": {
+            "telegram": {
+                "available": False,
+                "mentions": 0,
+                "sources": 0,
+                "score": 0,
+                "status": "not_connected_for_geckoterminal_experimental",
+            },
+            "reddit": {
+                "available": False,
+                "mentions": 0,
+                "narrative_score": 0,
+                "warning_score": 0,
+                "status": "planned",
+            },
+            "x_confirmation": {
+                "available": False,
+                "x_confirmation_score": 0,
+                "x_callers_count": 0,
+                "x_large_accounts_count": 0,
+                "x_mentions_velocity": 0,
+                "x_copy_paste_ratio": 0,
+                "x_warning_mentions": 0,
+                "x_scam_mentions": 0,
+                "status": "planned",
+            },
+        },
+        "x_confirmation_layer": {
+            "available": False,
+            "provider": None,
+            "intended_provider": "Apify or X API",
+            "role": "confirmation_only",
+            "can_override_safety": False,
+            "status": "planned",
+        },
+        "ai_judge_layer": {
+            "available": False,
+            "provider": None,
+            "model": None,
+            "status": "local_rules_only",
+            "fallback": "deterministic_geckoterminal_signal_v2",
+        },
+        "schema_readiness": {
+            "dashboard_ready": False,
+            "experimental_only": True,
+            "missing_layers": [
+                layer for layer, ok in {
+                    "telegram": False,
+                    "reddit": False,
+                    "x_confirmation": False,
+                    "ai_judge": False,
+                    "safety": bool(solana_safety.get("available")),
+                    "holders": solana_safety.get("holder_count") is not None or solana_safety.get("top_holder_percent") is not None,
+                }.items() if not ok
+            ],
+            "promotion_status": "not_promoted_to_main_dashboard",
+        },
+        "explanation": (
+            f"{symbol} is an experimental GeckoTerminal {direction} candidate. "
+            "It is not yet promoted into the main dashboard signal lists because safety, holders and social confirmation are still experimental for this candidate."
+        ),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+
+def fetch_geckoterminal_pool_candidates(network: str = "solana", mode: str = "trending", limit: int = 20) -> List[dict]:
+    """Fetch GeckoTerminal trending/new pools as raw candidate discovery input.
+
+    This is additive discovery only. It does not push candidates directly into dashboard signals yet.
+    """
+    network = (network or "solana").strip().lower()
+    mode = (mode or "trending").strip().lower()
+
+    if network in {"ethereum", "eth"}:
+        gt_network = "eth"
+        chain = "ethereum"
+    elif network == "solana":
+        gt_network = "solana"
+        chain = "solana"
+    else:
+        gt_network = network
+        chain = network
+
+    endpoint = "new_pools" if mode in {"new", "new_pools"} else "trending_pools"
+
+    try:
+        resp = requests.get(
+            f"https://api.geckoterminal.com/api/v2/networks/{gt_network}/{endpoint}",
+            params={"include": "base_token,quote_token,dex"},
+            headers={"accept": "application/json"},
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            logger.warning("GeckoTerminal candidate discovery failed %s/%s status=%s", gt_network, endpoint, resp.status_code)
+            return []
+
+        payload = resp.json() or {}
+        pools = payload.get("data") or []
+        included = payload.get("included") or []
+
+        token_index = {
+            item.get("id"): item.get("attributes") or {}
+            for item in included
+            if item.get("type") == "token"
+        }
+        dex_index = {
+            item.get("id"): item.get("attributes") or {}
+            for item in included
+            if item.get("type") == "dex"
+        }
+
+        candidates = []
+        for pool in pools[: max(1, min(limit, 50))]:
+            attrs = pool.get("attributes") or {}
+            rel = pool.get("relationships") or {}
+
+            base_rel = ((rel.get("base_token") or {}).get("data") or {}).get("id")
+            quote_rel = ((rel.get("quote_token") or {}).get("data") or {}).get("id")
+            dex_rel = ((rel.get("dex") or {}).get("data") or {}).get("id")
+
+            base = token_index.get(base_rel, {})
+            quote = token_index.get(quote_rel, {})
+            dex = dex_index.get(dex_rel, {})
+
+            volume = attrs.get("volume_usd") or {}
+            changes = attrs.get("price_change_percentage") or {}
+            tx = attrs.get("transactions") or {}
+
+            h1_tx = tx.get("h1") or {}
+            h24_tx = tx.get("h24") or {}
+
+            buys_h1 = int(h1_tx.get("buys") or 0)
+            sells_h1 = int(h1_tx.get("sells") or 0)
+            buys_h24 = int(h24_tx.get("buys") or 0)
+            sells_h24 = int(h24_tx.get("sells") or 0)
+
+            reserve_usd = safe_float(attrs.get("reserve_in_usd")) or 0
+            volume_h1 = safe_float(volume.get("h1")) or 0
+            volume_h24 = safe_float(volume.get("h24")) or 0
+
+            volume_liquidity_ratio_h1 = round(volume_h1 / reserve_usd, 4) if reserve_usd else None
+            volume_liquidity_ratio_h24 = round(volume_h24 / reserve_usd, 4) if reserve_usd else None
+            buy_sell_ratio_h1 = round(buys_h1 / max(sells_h1, 1), 4)
+            buy_sell_ratio_h24 = round(buys_h24 / max(sells_h24, 1), 4)
+
+            score = 0.0
+            score += min(28, abs(safe_float(changes.get("h1")) or 0) * 1.4)
+            score += min(22, abs(safe_float(changes.get("h24")) or 0) * 0.18)
+            score += min(24, (volume_liquidity_ratio_h1 or 0) * 8)
+            score += min(16, (volume_liquidity_ratio_h24 or 0) * 1.2)
+            score += min(10, max(0, buy_sell_ratio_h1 - 1) * 10)
+            score = int(max(0, min(100, round(score))))
+
+            direction = "pump" if (safe_float(changes.get("h1")) or 0) >= 0 else "dump"
+
+            candidates.append({
+                "source": "GeckoTerminal",
+                "candidate_origin": f"geckoterminal_{endpoint}",
+                "network": gt_network,
+                "chain": chain,
+                "mode": mode,
+                "pool_address": attrs.get("address"),
+                "pool_url": f"https://www.geckoterminal.com/{gt_network}/pools/{attrs.get('address')}",
+                "pool_name": attrs.get("name"),
+                "pool_created_at": attrs.get("pool_created_at"),
+                "dex": dex.get("name") or dex_rel,
+                "token_address": base.get("address"),
+                "symbol": (base.get("symbol") or "").upper(),
+                "name": base.get("name"),
+                "quote_symbol": quote.get("symbol"),
+                "quote_address": quote.get("address"),
+                "coingecko_coin_id": base.get("coingecko_coin_id"),
+                "price_usd": safe_float(attrs.get("base_token_price_usd")),
+                "fdv_usd": safe_float(attrs.get("fdv_usd")),
+                "market_cap_usd": safe_float(attrs.get("market_cap_usd")),
+                "reserve_usd": round(reserve_usd, 2),
+                "volume_usd": {
+                    "m5": safe_float(volume.get("m5")) or 0,
+                    "m15": safe_float(volume.get("m15")) or 0,
+                    "m30": safe_float(volume.get("m30")) or 0,
+                    "h1": round(volume_h1, 2),
+                    "h6": safe_float(volume.get("h6")) or 0,
+                    "h24": round(volume_h24, 2),
+                },
+                "price_change_pct": {
+                    "m5": safe_float(changes.get("m5")) or 0,
+                    "m15": safe_float(changes.get("m15")) or 0,
+                    "m30": safe_float(changes.get("m30")) or 0,
+                    "h1": safe_float(changes.get("h1")) or 0,
+                    "h6": safe_float(changes.get("h6")) or 0,
+                    "h24": safe_float(changes.get("h24")) or 0,
+                },
+                "transactions": {
+                    "h1_buys": buys_h1,
+                    "h1_sells": sells_h1,
+                    "h24_buys": buys_h24,
+                    "h24_sells": sells_h24,
+                    "h1_buy_sell_ratio": buy_sell_ratio_h1,
+                    "h24_buy_sell_ratio": buy_sell_ratio_h24,
+                },
+                "volume_liquidity_ratio_h1": volume_liquidity_ratio_h1,
+                "volume_liquidity_ratio_h24": volume_liquidity_ratio_h24,
+                "direction_hint": direction,
+                "dex_candidate_score": score,
+                "source_stack_hint": {
+                    "dex": ["GeckoTerminal", dex.get("name") or dex_rel],
+                    "market": ["GeckoTerminal trending pools"],
+                    "social": [],
+                    "reddit": [],
+                    "x": [],
+                    "safety": [],
+                    "holders": [],
+                },
+            })
+
+        candidates.sort(key=lambda item: item.get("dex_candidate_score", 0), reverse=True)
+        return candidates
+
+    except Exception as exc:
+        logger.warning("GeckoTerminal candidate discovery error network=%s mode=%s: %s", network, mode, exc)
+        return []
+
 
 def fetch_geckoterminal_token_pools(platform: Optional[str], contract_address: Optional[str]) -> List[dict]:
     if not platform or not contract_address:
@@ -7730,13 +9232,14 @@ async def get_coin_detail(symbol: str, type: str = "pump", refresh: bool = False
             signal_strength=signal.get("signal_strength", 0),
             direction_audit=current_direction_audit,
         )
-        if GEMINI_API_KEY and not looks_like_placeholder(GEMINI_API_KEY, "GEMINI_API_KEY"):
-            try:
-                chat = genai.GenerativeModel(
-                    model_name="gemini-2.0-flash",
-                    system_instruction="You are a crypto technical analysis expert. You respond in English only, concisely and directly. Never reply in Romanian or any other language."
-                )
-                prompt = f"""Improve this structured coin analysis without changing the facts. Keep it precise, practical, and in English only.
+        try:
+            system_instruction = (
+                "You are a crypto technical analysis expert. "
+                "You respond in English only, concisely and directly. "
+                "Never reply in Romanian or any other language. "
+                "Return strict JSON only."
+            )
+            prompt = f"""Improve this structured coin analysis without changing the facts. Keep it precise, practical, and in English only.
 Do not include Romanian or any bilingual output.
 
 Coin: {symbol}
@@ -7752,12 +9255,15 @@ Respond with JSON:
   "analysis": "4 concise paragraphs separated logically",
   "trend": "2 concise sentences"
 }}"""
-                resp = await asyncio.to_thread(lambda: chat.generate_content(prompt).text)
-                import json as json_lib
-                resp_clean = resp.strip()
-                if resp_clean.startswith("```"):
-                    resp_clean = "\n".join([line for line in resp_clean.split("\n") if not line.startswith("```")])
-                detail_json = json_lib.loads(resp_clean)
+            ai_result = await call_openai_compatible_json(
+                system_instruction=system_instruction,
+                user_prompt=prompt,
+                temperature=0.15,
+                max_tokens=1400,
+            )
+
+            if ai_result.get("ok") and ai_result.get("json"):
+                detail_json = ai_result["json"]
                 ai_analysis = detail_json.get("analysis", ai_analysis) or ai_analysis
                 trend_conclusion = detail_json.get("trend", trend_conclusion) or trend_conclusion
                 ai_paragraphs = [part.strip() for part in ai_analysis.split("\n\n") if part.strip()]
@@ -7767,14 +9273,14 @@ Respond with JSON:
                         {"title": titles[index] if index < len(titles) else f"Section {index + 1}", "body": paragraph}
                         for index, paragraph in enumerate(ai_paragraphs)
                     ]
-            except Exception as e:
-                err_text = str(e)
-                if "RESOURCE_EXHAUSTED" in err_text or "quota" in err_text.lower():
-                    logger.warning("Gemini quota exhausted during coin detail refinement - keeping deterministic analysis")
-                elif "API_KEY_INVALID" in err_text or "api key not valid" in err_text.lower():
-                    logger.warning("Gemini key invalid during coin detail refinement - keeping deterministic analysis")
-                else:
-                    logger.error(f"Coin detail AI error: {e}")
+            else:
+                logger.warning(
+                    "OpenAI/OpenRouter coin detail refinement failed - keeping deterministic analysis. provider=%s error=%s",
+                    ai_result.get("provider"),
+                    ai_result.get("error"),
+                )
+        except Exception as e:
+            logger.error(f"OpenAI/OpenRouter coin detail AI error - keeping deterministic analysis: {e}")
     else:
         analysis_sections = [
             {
@@ -9469,6 +10975,1615 @@ async def get_tour(user=Depends(get_current_user)):
 @app.post("/api/home/tour/{action}")
 async def tour_action(action: str, user=Depends(get_current_user)):
     return api_ok({"completed": True, "skipped": True})
+
+
+# ─────────────────────────────────────────────
+# TOKEN OSINT LAB - PREVIEW SCAN ENDPOINT
+# ─────────────────────────────────────────────
+class TokenOsintScanRequest(BaseModel):
+    query: str
+    chain: str | None = None
+
+
+def detect_osint_query_type(query: str) -> str:
+    value = (query or "").strip()
+    clean = value
+
+    if not value:
+        return "unknown"
+
+    if value.lower().startswith("http://") or value.lower().startswith("https://"):
+        return "project_url"
+
+    if value.startswith("0x") and len(value) == 42:
+        return "evm_contract"
+
+    base58_chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    if 32 <= len(clean) <= 44 and all(ch in base58_chars for ch in clean):
+        return "solana_mint"
+
+    if len(value) <= 16 and value.replace("$", "").replace("-", "").replace("_", "").isalnum():
+        return "symbol"
+
+    return "unknown"
+
+
+DEXSCREENER_BASE_URL = "https://api.dexscreener.com"
+
+
+def _safe_float(value, default=None):
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _choose_best_dex_pair(pairs):
+    if not pairs:
+        return None
+
+    def score(pair):
+        liquidity = _safe_float((pair.get("liquidity") or {}).get("usd"), 0) or 0
+        volume = _safe_float((pair.get("volume") or {}).get("h24"), 0) or 0
+        return liquidity + (volume * 0.05)
+
+    return sorted(pairs, key=score, reverse=True)[0]
+
+
+def _normalize_dex_pair(pair):
+    if not pair:
+        return None
+
+    base = pair.get("baseToken") or {}
+    quote = pair.get("quoteToken") or {}
+    liquidity = pair.get("liquidity") or {}
+    volume = pair.get("volume") or {}
+    price_change = pair.get("priceChange") or {}
+
+    return {
+        "source": "DexScreener",
+        "chain": pair.get("chainId"),
+        "dex": pair.get("dexId"),
+        "pair_address": pair.get("pairAddress"),
+        "pair_url": pair.get("url"),
+        "base_token": {
+            "name": base.get("name"),
+            "symbol": base.get("symbol"),
+            "address": base.get("address"),
+        },
+        "quote_token": {
+            "name": quote.get("name"),
+            "symbol": quote.get("symbol"),
+            "address": quote.get("address"),
+        },
+        "price_usd": _safe_float(pair.get("priceUsd")),
+        "price_native": pair.get("priceNative"),
+        "liquidity_usd": _safe_float(liquidity.get("usd")),
+        "volume_24h": _safe_float(volume.get("h24")),
+        "price_change_24h": _safe_float(price_change.get("h24")),
+        "fdv": _safe_float(pair.get("fdv")),
+        "market_cap": _safe_float(pair.get("marketCap")),
+        "created_at": pair.get("pairCreatedAt"),
+    }
+
+
+def lookup_dexscreener_osint(query: str, query_type: str, chain: str):
+    value = query.strip()
+    normalized_chain = (chain or "ethereum").lower()
+
+    try:
+        if query_type in {"evm_contract", "solana_mint"}:
+            url = f"{DEXSCREENER_BASE_URL}/token-pairs/v1/{normalized_chain}/{value}"
+            response = requests.get(url, timeout=12)
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            data = response.json()
+            pairs = data if isinstance(data, list) else data.get("pairs", [])
+
+        elif query_type == "symbol":
+            symbol = value.replace("$", "").upper()
+            url = f"{DEXSCREENER_BASE_URL}/latest/dex/search"
+            response = requests.get(url, params={"q": symbol}, timeout=12)
+            response.raise_for_status()
+            data = response.json()
+            raw_pairs = data.get("pairs", []) if isinstance(data, dict) else []
+
+            exact_pairs = [
+                pair for pair in raw_pairs
+                if ((pair.get("baseToken") or {}).get("symbol") or "").upper() == symbol
+            ]
+            pairs = exact_pairs or raw_pairs
+
+        else:
+            return None
+
+        best_pair = _choose_best_dex_pair(pairs)
+        return _normalize_dex_pair(best_pair)
+
+    except Exception as exc:
+        logger.warning(f"Token OSINT DexScreener lookup failed for query={query}: {exc}")
+        return None
+
+
+def _liquidity_health_score(liquidity_usd):
+    liquidity = _safe_float(liquidity_usd, 0) or 0
+    if liquidity >= 1_000_000:
+        return 85
+    if liquidity >= 250_000:
+        return 70
+    if liquidity >= 75_000:
+        return 55
+    if liquidity >= 20_000:
+        return 40
+    if liquidity > 0:
+        return 25
+    return None
+
+
+def _basic_osint_verdict(dex_data):
+    if not dex_data:
+        return {
+            "label": "Pending",
+            "confidence": 0,
+            "summary": "No external OSINT market source returned data yet. More sources are needed before a verdict."
+        }
+
+    liquidity = _safe_float(dex_data.get("liquidity_usd"), 0) or 0
+    volume = _safe_float(dex_data.get("volume_24h"), 0) or 0
+    change = _safe_float(dex_data.get("price_change_24h"), 0) or 0
+
+    if liquidity < 20_000:
+        return {
+            "label": "Risky",
+            "confidence": 55,
+            "summary": "DexScreener found the token, but liquidity is very low. Treat this as high risk until contract safety and holder checks are added."
+        }
+
+    if volume > liquidity * 2 and abs(change) > 20:
+        return {
+            "label": "Monitor",
+            "confidence": 62,
+            "summary": "DexScreener shows active trading and strong movement versus liquidity. This deserves monitoring, but safety and holder checks are still pending."
+        }
+
+    return {
+        "label": "Watch",
+        "confidence": 58,
+        "summary": "DexScreener returned a valid market pair. This is a partial OSINT result; contract, holder, social, and liquidity-lock checks are still pending."
+    }
+
+
+
+ETHERSCAN_API_BY_CHAIN = {
+    "ethereum": {"url": "https://api.etherscan.io/v2/api", "chainid": "1", "explorer": "https://etherscan.io"},
+    "eth": {"url": "https://api.etherscan.io/v2/api", "chainid": "1", "explorer": "https://etherscan.io"},
+}
+
+
+def lookup_etherscan_contract_creator(chain: str, contract: str) -> dict:
+    normalized_chain = (chain or "").strip().lower()
+    chain_cfg = ETHERSCAN_API_BY_CHAIN.get(normalized_chain)
+
+    if not chain_cfg or not contract or not str(contract).lower().startswith("0x"):
+        return {
+            "available": False,
+            "provider": "Etherscan",
+            "reason": "unsupported_chain_or_contract",
+        }
+
+    if not ETHERSCAN_API_KEY:
+        return {
+            "available": False,
+            "provider": "Etherscan",
+            "reason": "api_key_missing",
+        }
+
+    try:
+        params = {
+            "chainid": chain_cfg["chainid"],
+            "module": "contract",
+            "action": "getcontractcreation",
+            "contractaddresses": contract,
+            "apikey": ETHERSCAN_API_KEY,
+        }
+        response = requests.get(chain_cfg["url"], params=params, timeout=18)
+        response.raise_for_status()
+        payload = response.json()
+
+        result = payload.get("result") or []
+
+        if isinstance(result, str):
+            return {
+                "available": False,
+                "provider": "Etherscan",
+                "reason": "api_result_string",
+                "raw_status": payload.get("status"),
+                "raw_message": payload.get("message"),
+                "raw_result": result[:240],
+            }
+
+        if isinstance(result, dict):
+            result = [result]
+
+        if not isinstance(result, list) or not result:
+            return {
+                "available": False,
+                "provider": "Etherscan",
+                "reason": "empty_result",
+                "raw_status": payload.get("status"),
+                "raw_message": payload.get("message"),
+            }
+
+        item = result[0] or {}
+        if not isinstance(item, dict):
+            return {
+                "available": False,
+                "provider": "Etherscan",
+                "reason": "unexpected_result_item",
+                "raw_status": payload.get("status"),
+                "raw_message": payload.get("message"),
+                "raw_result": str(item)[:240],
+            }
+
+        creator = item.get("contractCreator") or item.get("creatorAddress")
+        tx_hash = item.get("txHash") or item.get("contractCreatorTxHash")
+
+        if not creator and not tx_hash:
+            return {
+                "available": False,
+                "provider": "Etherscan",
+                "reason": "creator_not_found",
+                "raw_status": payload.get("status"),
+                "raw_message": payload.get("message"),
+            }
+
+        return {
+            "available": True,
+            "provider": "Etherscan",
+            "chain": normalized_chain,
+            "deployer_wallet": creator,
+            "contract_creation_tx": tx_hash,
+            "contract_address": contract,
+            "block_number": item.get("blockNumber"),
+            "created_timestamp": item.get("timestamp"),
+            "contract_factory": item.get("contractFactory"),
+            "etherscan_contract_url": f"{chain_cfg['explorer']}/address/{contract}",
+            "etherscan_tx_url": f"{chain_cfg['explorer']}/tx/{tx_hash}" if tx_hash else None,
+            "raw_message": payload.get("message"),
+        }
+
+    except Exception as exc:
+        logger.warning(f"Etherscan OSINT creator lookup failed for {chain}:{contract}: {exc}")
+        return {
+            "available": False,
+            "provider": "Etherscan",
+            "reason": "request_failed",
+            "error": str(exc),
+        }
+
+
+COINGECKO_PLATFORM_BY_CHAIN = {
+    "ethereum": "ethereum",
+    "eth": "ethereum",
+    "bsc": "binance-smart-chain",
+    "binance-smart-chain": "binance-smart-chain",
+    "polygon": "polygon-pos",
+    "polygon-pos": "polygon-pos",
+    "arbitrum": "arbitrum-one",
+    "arbitrum-one": "arbitrum-one",
+    "optimism": "optimistic-ethereum",
+    "base": "base",
+    "avalanche": "avalanche",
+    "solana": "solana",
+}
+
+
+def lookup_coingecko_contract_metadata(chain: str, contract: str) -> dict:
+    platform = COINGECKO_PLATFORM_BY_CHAIN.get((chain or "").strip().lower())
+
+    if not platform or not contract:
+        return {
+            "available": False,
+            "provider": "CoinGecko",
+            "reason": "unsupported_chain_or_contract",
+        }
+
+    if platform != "solana" and not str(contract).lower().startswith("0x"):
+        return {
+            "available": False,
+            "provider": "CoinGecko",
+            "reason": "unsupported_chain_or_contract",
+        }
+
+    try:
+        url = f"https://api.coingecko.com/api/v3/coins/{platform}/contract/{contract}"
+        response = requests.get(url, headers=CG_HEADERS, timeout=18)
+
+        if response.status_code == 404:
+            return {
+                "available": False,
+                "provider": "CoinGecko",
+                "reason": "contract_not_found",
+                "platform": platform,
+            }
+
+        response.raise_for_status()
+        data = response.json() if response.content else {}
+
+        links = data.get("links") or {}
+        homepage = [x for x in (links.get("homepage") or []) if x]
+        blockchain_site = [x for x in (links.get("blockchain_site") or []) if x]
+        official_forum_url = [x for x in (links.get("official_forum_url") or []) if x]
+        chat_url = [x for x in (links.get("chat_url") or []) if x]
+        announcement_url = [x for x in (links.get("announcement_url") or []) if x]
+
+        socials = {
+            "twitter": links.get("twitter_screen_name"),
+            "telegram": links.get("telegram_channel_identifier"),
+            "subreddit": links.get("subreddit_url"),
+            "github": (links.get("repos_url") or {}).get("github") or [],
+            "chat": chat_url,
+            "forum": official_forum_url,
+            "announcement": announcement_url,
+        }
+
+        market_data = data.get("market_data") or {}
+
+        return {
+            "available": True,
+            "provider": "CoinGecko",
+            "source": "contract_lookup",
+            "platform": platform,
+            "coin_id": data.get("id"),
+            "name": data.get("name"),
+            "symbol": (data.get("symbol") or "").upper() if data.get("symbol") else None,
+            "asset_platform_id": data.get("asset_platform_id"),
+            "contract": contract,
+            "website": homepage[0] if homepage else None,
+            "homepage": homepage,
+            "blockchain_site": blockchain_site,
+            "categories": data.get("categories") or [],
+            "description": ((data.get("description") or {}).get("en") or "")[:800],
+            "genesis_date": data.get("genesis_date"),
+            "sentiment_votes_up_percentage": data.get("sentiment_votes_up_percentage"),
+            "sentiment_votes_down_percentage": data.get("sentiment_votes_down_percentage"),
+            "watchlist_portfolio_users": data.get("watchlist_portfolio_users"),
+            "market_cap_rank": data.get("market_cap_rank"),
+            "coingecko_rank": data.get("coingecko_rank"),
+            "liquidity_score": data.get("liquidity_score"),
+            "developer_score": data.get("developer_score"),
+            "community_score": data.get("community_score"),
+            "public_interest_score": data.get("public_interest_score"),
+            "market_data": {
+                "current_price_usd": (market_data.get("current_price") or {}).get("usd"),
+                "market_cap_usd": (market_data.get("market_cap") or {}).get("usd"),
+                "total_volume_usd": (market_data.get("total_volume") or {}).get("usd"),
+                "price_change_24h": market_data.get("price_change_percentage_24h"),
+            },
+            "socials": socials,
+        }
+
+    except Exception as exc:
+        logger.warning(f"CoinGecko OSINT metadata lookup failed for {chain}:{contract}: {exc}")
+        return {
+            "available": False,
+            "provider": "CoinGecko",
+            "reason": "request_failed",
+            "error": str(exc),
+            "platform": platform,
+        }
+
+
+GOPLUS_CHAIN_IDS = {
+    "ethereum": "1",
+    "eth": "1",
+    "bsc": "56",
+    "binance-smart-chain": "56",
+    "polygon": "137",
+    "arbitrum": "42161",
+    "optimism": "10",
+    "base": "8453",
+    "avalanche": "43114",
+}
+
+
+def _truthy_flag(value):
+    return str(value).strip().lower() in {"1", "true", "yes"}
+
+
+def lookup_goplus_osint(chain: str, contract: str):
+    normalized_chain = (chain or "").lower()
+    chain_id = GOPLUS_CHAIN_IDS.get(normalized_chain)
+
+    if not contract or not str(contract).lower().startswith("0x"):
+        return {
+            "available": False,
+            "provider": "GoPlus",
+            "reason": "evm_contract_required",
+            "checks": {},
+            "risk_score": None,
+            "red_flags": [],
+        }
+
+    if not chain_id:
+        return {
+            "available": False,
+            "provider": "GoPlus",
+            "reason": "unsupported_chain",
+            "checks": {},
+            "risk_score": None,
+            "red_flags": [],
+        }
+
+    try:
+        url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}"
+        response = requests.get(url, params={"contract_addresses": contract}, timeout=15)
+        response.raise_for_status()
+        payload = response.json()
+
+        token_map = payload.get("result") or {}
+        token_data = token_map.get(contract) or token_map.get(contract.lower()) or {}
+
+        if not token_data:
+            return {
+                "available": False,
+                "provider": "GoPlus",
+                "reason": "empty_result",
+                "checks": {},
+                "risk_score": None,
+                "red_flags": [],
+            }
+
+        checks = {
+            "open_source": _truthy_flag(token_data.get("is_open_source")),
+            "proxy": _truthy_flag(token_data.get("is_proxy")),
+            "honeypot": _truthy_flag(token_data.get("is_honeypot")),
+            "blacklist": _truthy_flag(token_data.get("is_blacklisted") or token_data.get("blacklist")),
+            "malicious_address": _truthy_flag(token_data.get("malicious_address")),
+            "hidden_owner": _truthy_flag(token_data.get("hidden_owner")),
+            "owner_can_change_balance": _truthy_flag(token_data.get("owner_change_balance")),
+            "cannot_sell_all": _truthy_flag(token_data.get("cannot_sell_all")),
+            "trading_cooldown": _truthy_flag(token_data.get("trading_cooldown")),
+            "selfdestruct": _truthy_flag(token_data.get("selfdestruct")),
+        }
+
+        buy_tax = _safe_float(token_data.get("buy_tax"), 0) or 0
+        sell_tax = _safe_float(token_data.get("sell_tax"), 0) or 0
+        checks["buy_tax"] = buy_tax
+        checks["sell_tax"] = sell_tax
+
+        risk_score = 20
+        red_flags = []
+
+        if not checks["open_source"]:
+            risk_score += 18
+            red_flags.append("contract_not_open_source")
+        if checks["proxy"]:
+            risk_score += 8
+            red_flags.append("proxy_contract")
+        if checks["honeypot"]:
+            risk_score += 45
+            red_flags.append("honeypot")
+        if checks["blacklist"]:
+            risk_score += 25
+            red_flags.append("blacklist")
+        if checks["malicious_address"]:
+            risk_score += 40
+            red_flags.append("malicious_address")
+        if checks["hidden_owner"]:
+            risk_score += 12
+            red_flags.append("hidden_owner")
+        if checks["owner_can_change_balance"]:
+            risk_score += 18
+            red_flags.append("owner_can_change_balance")
+        if checks["cannot_sell_all"]:
+            risk_score += 35
+            red_flags.append("cannot_sell_all")
+        if max(buy_tax, sell_tax) >= 20:
+            risk_score += 20
+            red_flags.append("high_tax")
+        elif max(buy_tax, sell_tax) >= 8:
+            risk_score += 8
+            red_flags.append("elevated_tax")
+
+        risk_score = max(0, min(100, int(risk_score)))
+
+        return {
+            "available": True,
+            "provider": "GoPlus",
+            "reason": None,
+            "checks": checks,
+            "risk_score": risk_score,
+            "red_flags": sorted(set(red_flags)),
+        }
+
+    except Exception as exc:
+        logger.warning(f"Token OSINT GoPlus lookup failed for chain={chain} contract={contract}: {exc}")
+        return {
+            "available": False,
+            "provider": "GoPlus",
+            "reason": "request_failed",
+            "error": str(exc),
+            "checks": {},
+            "risk_score": None,
+            "red_flags": [],
+        }
+
+
+
+def _dex_activity_social_score(dex_data):
+    if not dex_data:
+        return {
+            "available": False,
+            "score": 0,
+            "volume_liquidity_ratio": None,
+            "reason": "no_dex_market_data",
+        }
+
+    liquidity = _safe_float(dex_data.get("liquidity_usd"), 0) or 0
+    volume = _safe_float(dex_data.get("volume_24h"), 0) or 0
+    change = abs(_safe_float(dex_data.get("price_change_24h"), 0) or 0)
+
+    ratio = volume / liquidity if liquidity > 0 else 0
+
+    score = 0
+    if liquidity > 0:
+        score += 15
+    if ratio >= 2:
+        score += 45
+    elif ratio >= 0.75:
+        score += 35
+    elif ratio >= 0.25:
+        score += 25
+    elif ratio >= 0.05:
+        score += 15
+    elif ratio > 0:
+        score += 5
+
+    if change >= 40:
+        score += 25
+    elif change >= 15:
+        score += 18
+    elif change >= 5:
+        score += 10
+    elif change > 0:
+        score += 4
+
+    return {
+        "available": True,
+        "score": max(0, min(100, int(score))),
+        "volume_liquidity_ratio": round(ratio, 4),
+        "volume_24h": volume,
+        "liquidity_usd": liquidity,
+        "price_change_24h": dex_data.get("price_change_24h"),
+    }
+
+
+async def lookup_telegram_social_heat(symbol: str):
+    sym = (symbol or "").replace("$", "").upper().strip()
+
+    if not sym:
+        return {
+            "available": False,
+            "score": 0,
+            "reason": "missing_symbol",
+            "mentions_72h": 0,
+            "useful_signals": 0,
+        }
+
+    since = datetime.utcnow() - timedelta(hours=72)
+
+    try:
+        docs = await db.telegram_signals.find({
+            "symbol": sym,
+            "posted_at": {"$gte": since},
+        }).sort("posted_at", -1).limit(100).to_list(length=100)
+
+        mentions = len(docs)
+        useful = 0
+        verified = 0
+        pending = 0
+        pump = 0
+        dump = 0
+        quality_confidences = []
+
+        for doc in docs:
+            status = (doc.get("status") or "").lower()
+            direction = (doc.get("direction") or "").lower()
+            qj = doc.get("quality_judge") or {}
+
+            if status == "verified":
+                verified += 1
+            if status in {"pending", "partially_verified"}:
+                pending += 1
+            if direction == "pump":
+                pump += 1
+            if direction == "dump":
+                dump += 1
+
+            if qj.get("is_trade_signal") is True:
+                useful += 1
+                try:
+                    quality_confidences.append(float(qj.get("confidence") or 0))
+                except Exception:
+                    pass
+
+        score = 0
+        if mentions >= 10:
+            score += 35
+        elif mentions >= 5:
+            score += 25
+        elif mentions >= 2:
+            score += 15
+        elif mentions == 1:
+            score += 8
+
+        if useful >= 5:
+            score += 35
+        elif useful >= 2:
+            score += 25
+        elif useful == 1:
+            score += 15
+
+        if verified >= 2:
+            score += 15
+        elif verified == 1:
+            score += 8
+
+        if quality_confidences:
+            avg_conf = sum(quality_confidences) / len(quality_confidences)
+            if avg_conf >= 75:
+                score += 12
+            elif avg_conf >= 55:
+                score += 6
+
+        return {
+            "available": True,
+            "score": max(0, min(100, int(score))),
+            "symbol": sym,
+            "window_hours": 72,
+            "mentions_72h": mentions,
+            "useful_signals": useful,
+            "verified": verified,
+            "pending": pending,
+            "pump": pump,
+            "dump": dump,
+            "avg_quality_confidence": round(sum(quality_confidences) / len(quality_confidences), 2) if quality_confidences else None,
+            "sample": [
+                {
+                    "direction": doc.get("direction"),
+                    "status": doc.get("status"),
+                    "quality": (doc.get("quality_judge") or {}).get("label"),
+                    "confidence": (doc.get("quality_judge") or {}).get("confidence"),
+                    "posted_at": str(doc.get("posted_at")),
+                }
+                for doc in docs[:5]
+            ],
+        }
+
+    except Exception as exc:
+        logger.warning(f"Token OSINT Telegram social heat lookup failed for symbol={sym}: {exc}")
+        return {
+            "available": False,
+            "score": 0,
+            "reason": "telegram_lookup_failed",
+            "error": str(exc),
+            "mentions_72h": 0,
+            "useful_signals": 0,
+        }
+
+
+
+HONEYPOT_CHAIN_IDS = {
+    "ethereum": 1,
+    "eth": 1,
+    "bsc": 56,
+    "binance-smart-chain": 56,
+    "base": 8453,
+}
+
+
+def lookup_honeypot_osint(chain: str, contract: str, pair_address: str | None = None):
+    normalized_chain = (chain or "").lower()
+    chain_id = HONEYPOT_CHAIN_IDS.get(normalized_chain)
+
+    if not contract or not str(contract).lower().startswith("0x"):
+        return {
+            "available": False,
+            "provider": "Honeypot.is",
+            "reason": "evm_contract_required",
+            "checks": {},
+            "red_flags": [],
+        }
+
+    if not chain_id:
+        return {
+            "available": False,
+            "provider": "Honeypot.is",
+            "reason": "unsupported_chain",
+            "checks": {},
+            "red_flags": [],
+        }
+
+    try:
+        params = {
+            "address": contract,
+            "chainID": chain_id,
+        }
+        if pair_address:
+            params["pair"] = pair_address
+
+        response = requests.get("https://api.honeypot.is/v2/IsHoneypot", params=params, timeout=18)
+        response.raise_for_status()
+        payload = response.json()
+
+        honeypot_result = payload.get("honeypotResult") or {}
+        simulation_result = payload.get("simulationResult") or {}
+        summary = payload.get("summary") or {}
+
+        is_honeypot = honeypot_result.get("isHoneypot") is True
+        buy_tax = _safe_float(simulation_result.get("buyTax"), 0) or 0
+        sell_tax = _safe_float(simulation_result.get("sellTax"), 0) or 0
+        transfer_tax = _safe_float(simulation_result.get("transferTax"), 0)
+        summary_risk = (summary.get("risk") or "").strip().lower() or None
+
+        red_flags = []
+        if is_honeypot:
+            red_flags.append("honeypot")
+        if max(buy_tax, sell_tax) >= 20:
+            red_flags.append("high_tax")
+        elif max(buy_tax, sell_tax) >= 8:
+            red_flags.append("elevated_tax")
+        if summary_risk in {"high", "very_high"}:
+            red_flags.append(f"honeypot_summary_{summary_risk}")
+
+        return {
+            "available": True,
+            "provider": "Honeypot.is",
+            "reason": None,
+            "checks": {
+                "is_honeypot": is_honeypot,
+                "buy_tax": buy_tax,
+                "sell_tax": sell_tax,
+                "transfer_tax": transfer_tax,
+                "summary_risk": summary_risk,
+            },
+            "red_flags": sorted(set(red_flags)),
+        }
+
+    except Exception as exc:
+        logger.warning(f"Token OSINT Honeypot lookup failed for chain={chain} contract={contract}: {exc}")
+        return {
+            "available": False,
+            "provider": "Honeypot.is",
+            "reason": "request_failed",
+            "error": str(exc),
+            "checks": {},
+            "red_flags": [],
+        }
+
+
+def merge_osint_safety(goplus_data, honeypot_data):
+    red_flags = sorted(set((goplus_data or {}).get("red_flags") or []) | set((honeypot_data or {}).get("red_flags") or []))
+
+    checks = dict((goplus_data or {}).get("checks") or {})
+    hp_checks = (honeypot_data or {}).get("checks") or {}
+
+    if honeypot_data and honeypot_data.get("available"):
+        checks["honeypot_is_honeypot"] = hp_checks.get("is_honeypot")
+        checks["honeypot_buy_tax"] = hp_checks.get("buy_tax")
+        checks["honeypot_sell_tax"] = hp_checks.get("sell_tax")
+        checks["honeypot_summary_risk"] = hp_checks.get("summary_risk")
+
+    risk_score = (goplus_data or {}).get("risk_score")
+    if risk_score is None:
+        risk_score = 20
+
+    if "honeypot" in red_flags:
+        risk_score += 40
+    if "high_tax" in red_flags:
+        risk_score += 18
+    elif "elevated_tax" in red_flags:
+        risk_score += 8
+    if any(flag.startswith("honeypot_summary_") for flag in red_flags):
+        risk_score += 12
+
+    risk_score = max(0, min(100, int(risk_score)))
+
+    return {
+        "available": bool((goplus_data or {}).get("available") or (honeypot_data or {}).get("available")),
+        "provider": "GoPlus + Honeypot.is",
+        "goplus": goplus_data,
+        "honeypot": honeypot_data,
+        "checks": checks,
+        "risk_score": risk_score,
+        "red_flags": red_flags,
+    }
+
+
+
+def lookup_honeypot_holders_osint(chain: str, contract: str):
+    normalized_chain = (chain or "").lower()
+    chain_id = HONEYPOT_CHAIN_IDS.get(normalized_chain)
+
+    if not contract or not str(contract).lower().startswith("0x"):
+        return {
+            "available": False,
+            "provider": "Honeypot.is TopHolders",
+            "reason": "evm_contract_required",
+            "source_mode": "unavailable",
+            "risks": [],
+        }
+
+    if not chain_id:
+        return {
+            "available": False,
+            "provider": "Honeypot.is TopHolders",
+            "reason": "unsupported_chain",
+            "source_mode": "unavailable",
+            "risks": [],
+        }
+
+    try:
+        response = requests.get(
+            "https://api.honeypot.is/v1/TopHolders",
+            params={"address": contract, "chainID": chain_id},
+            timeout=18,
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        total_supply = _safe_float(payload.get("totalSupply"), 0) or 0
+        holders = payload.get("holders") or []
+
+        if total_supply <= 0 or not holders:
+            return {
+                "available": False,
+                "provider": "Honeypot.is TopHolders",
+                "reason": "empty_holders",
+                "source_mode": "empty",
+                "risks": [],
+            }
+
+        shares = []
+        normalized_holders = []
+        for holder in holders:
+            balance = _safe_float(holder.get("balance"), 0) or 0
+            share = balance / total_supply if total_supply else 0
+            shares.append(share)
+            normalized_holders.append({
+                "address": holder.get("address"),
+                "balance": balance,
+                "share": round(share, 6),
+            })
+
+        top_1_share = sum(shares[:1])
+        top_5_share = sum(shares[:5])
+        top_10_share = sum(shares[:10])
+
+        risks = []
+        if top_1_share >= 0.2:
+            risks.append("single_holder_dominance")
+        if top_10_share >= 0.35:
+            risks.append("holder_concentration_high")
+        elif top_10_share >= 0.2:
+            risks.append("holder_concentration_elevated")
+
+        holder_risk = 15
+        if top_1_share >= 0.2:
+            holder_risk += 35
+        elif top_1_share >= 0.1:
+            holder_risk += 20
+
+        if top_10_share >= 0.35:
+            holder_risk += 35
+        elif top_10_share >= 0.2:
+            holder_risk += 20
+        elif top_10_share >= 0.1:
+            holder_risk += 10
+
+        holder_risk = max(0, min(100, int(holder_risk)))
+
+        return {
+            "available": True,
+            "provider": "Honeypot.is TopHolders",
+            "reason": None,
+            "source_mode": "live",
+            "holder_count_sample": len(holders),
+            "top_1_share": round(top_1_share, 4),
+            "top_5_share": round(top_5_share, 4),
+            "top_10_share": round(top_10_share, 4),
+            "holder_risk": holder_risk,
+            "risks": sorted(set(risks)),
+            "sample": normalized_holders[:10],
+        }
+
+    except Exception as exc:
+        logger.warning(f"Token OSINT holders lookup failed for chain={chain} contract={contract}: {exc}")
+        return {
+            "available": False,
+            "provider": "Honeypot.is TopHolders",
+            "reason": "request_failed",
+            "error": str(exc),
+            "source_mode": "unavailable",
+            "risks": [],
+        }
+
+
+
+@app.post("/api/osint/scan")
+async def token_osint_scan(payload: TokenOsintScanRequest, user=Depends(get_optional_user)):
+    query = payload.query.strip()
+
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+
+    query_type = detect_osint_query_type(query)
+
+    if query_type not in {"evm_contract", "solana_mint"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Token OSINT requires an official EVM contract address or Solana mint address. Symbol search is disabled to avoid clones and ticker collisions."
+        )
+
+    chain = payload.chain or ("solana" if query_type == "solana_mint" else "ethereum")
+
+    dex_data = lookup_dexscreener_osint(query, query_type, chain)
+    verdict = _basic_osint_verdict(dex_data)
+    liquidity_health = _liquidity_health_score(dex_data.get("liquidity_usd") if dex_data else None)
+
+    identity = {
+        "name": "Pending OSINT lookup",
+        "symbol": query.upper() if query_type == "symbol" else "UNKNOWN",
+        "contract": query if query_type in {"evm_contract", "solana_mint"} else None,
+        "website": query if query_type == "project_url" else None,
+        "category": "pending",
+    }
+
+    if dex_data:
+        base = dex_data.get("base_token") or {}
+        identity.update({
+            "name": base.get("name") or identity["name"],
+            "symbol": base.get("symbol") or identity["symbol"],
+            "contract": base.get("address") or identity["contract"],
+            "category": "dex_market_pair",
+        })
+        chain = dex_data.get("chain") or chain
+
+    metadata = lookup_coingecko_contract_metadata(chain, identity.get("contract"))
+
+    if metadata.get("available"):
+        categories = metadata.get("categories") or []
+        identity.update({
+            "name": metadata.get("name") or identity["name"],
+            "symbol": metadata.get("symbol") or identity["symbol"],
+            "website": metadata.get("website") or identity.get("website"),
+            "category": categories[0] if categories else identity.get("category"),
+            "coin_id": metadata.get("coin_id"),
+            "launch_date": metadata.get("genesis_date"),
+        })
+
+    if query_type == "solana_mint" or (chain or "").lower() == "solana":
+        safety = {
+            "available": False,
+            "provider": "EVM safety providers",
+            "reason": "not_applicable_for_solana_v1",
+            "checks": {},
+            "risk_score": None,
+            "red_flags": [],
+        }
+        creator = {
+            "available": False,
+            "provider": "Etherscan",
+            "reason": "not_applicable_for_solana",
+        }
+        holders = {
+            "available": False,
+            "provider": "Solana holder source",
+            "reason": "solana_holder_source_not_connected",
+            "source_mode": "not_connected",
+            "risks": [],
+        }
+    else:
+        goplus_safety = lookup_goplus_osint(chain, identity.get("contract"))
+        honeypot_safety = lookup_honeypot_osint(
+            chain,
+            identity.get("contract"),
+            dex_data.get("pair_address") if dex_data else None,
+        )
+        safety = merge_osint_safety(goplus_safety, honeypot_safety)
+        creator = lookup_etherscan_contract_creator(chain, identity.get("contract"))
+        holders = lookup_honeypot_holders_osint(chain, identity.get("contract"))
+
+    telegram_social = await lookup_telegram_social_heat(identity.get("symbol"))
+    dex_social = _dex_activity_social_score(dex_data)
+
+    social_heat = max(
+        telegram_social.get("score") or 0,
+        dex_social.get("score") or 0,
+    )
+
+    holder_risk = holders.get("holder_risk") if holders.get("available") else None
+
+    if query_type == "solana_mint" or (chain or "").lower() == "solana":
+        verdict = {
+            **verdict,
+            "label": verdict.get("label", "Watch"),
+            "confidence": max(verdict.get("confidence", 0), 58),
+            "summary": "Solana v1 scan connected through DexScreener and CoinGecko metadata. Solana-specific holder, deployer and safety sources are not connected yet."
+        }
+    elif safety.get("available"):
+        verdict = {
+            **verdict,
+            "label": "Risky" if (safety.get("risk_score") or 0) >= 65 else verdict.get("label", "Watch"),
+            "confidence": max(verdict.get("confidence", 0), 65),
+            "summary": f"{verdict.get('summary', '')} GoPlus safety check is connected and returned {len(safety.get('red_flags') or [])} active risk flags."
+        }
+
+    result = {
+        "status": "partial" if dex_data or safety.get("available") else "preview",
+        "sample_data": False if dex_data or safety.get("available") else True,
+        "query": query,
+        "query_type": query_type,
+        "chain": chain,
+        "identity": identity,
+        "metadata": metadata,
+        "creator": creator,
+        "market": dex_data,
+        "contract_safety": safety,
+        "social": {
+            "heat_score": social_heat,
+            "telegram": telegram_social,
+            "dex_activity": dex_social,
+            "sources": ["telegram_signals", "dexscreener_activity"],
+        },
+        "holders": holders,
+        "scores": {
+            "risk_score": safety.get("risk_score"),
+            "social_heat": social_heat,
+            "holder_risk": holder_risk,
+            "liquidity_health": liquidity_health,
+        },
+        "red_flags": sorted(set((safety.get("red_flags") or ([] if dex_data else ["no_market_pair_found"])) + (holders.get("risks") or []))),
+        "ai_verdict": verdict,
+        "full_ai_analysis": None,
+        "report": None,
+        "next_sources": [
+            "GeckoTerminal",
+            "TokenSniffer",
+            "Etherscan/BscScan/Solscan",
+            "AI judge layer"
+        ],
+        "scan_id": None,
+        "saved": False,
+    }
+
+    if user:
+        try:
+            scan_doc = {
+                "user_id": str(user["_id"]),
+                "user_email": user.get("email"),
+                "query": query,
+                "query_type": query_type,
+                "chain": chain,
+                "symbol": identity.get("symbol"),
+                "contract": identity.get("contract"),
+                "created_at": datetime.utcnow(),
+                "result": result,
+                "scores": result.get("scores"),
+                "red_flags": result.get("red_flags"),
+                "verdict": (result.get("ai_verdict") or {}).get("label"),
+                "full_ai_analysis": None,
+                "report": None,
+            }
+            insert_result = await db.osint_scans.insert_one(scan_doc)
+            result["scan_id"] = str(insert_result.inserted_id)
+            result["saved"] = True
+        except Exception as exc:
+            logger.warning(f"Token OSINT scan save failed: {exc}")
+            result["save_error"] = "scan_not_saved"
+
+    return api_ok(result)
+
+
+def build_local_osint_ai_analysis(scan_result: dict) -> dict:
+    identity = scan_result.get("identity") or {}
+    market = scan_result.get("market") or {}
+    safety = scan_result.get("contract_safety") or {}
+    social = scan_result.get("social") or {}
+    holders = scan_result.get("holders") or {}
+    scores = scan_result.get("scores") or {}
+    red_flags = scan_result.get("red_flags") or []
+
+    symbol = identity.get("symbol") or scan_result.get("query") or "Token"
+    risk_score = scores.get("risk_score")
+    social_heat = scores.get("social_heat")
+    holder_risk = scores.get("holder_risk")
+    liquidity_health = scores.get("liquidity_health")
+
+    flag_text = ", ".join(red_flags) if red_flags else "No active red flags from connected sources"
+
+    if "honeypot" in red_flags or "cannot_sell_all" in red_flags:
+        verdict = "Reject"
+    elif (risk_score or 0) >= 70 or (holder_risk or 0) >= 75:
+        verdict = "Risky"
+    elif red_flags:
+        verdict = "Watch"
+    else:
+        verdict = "Monitor"
+
+    confidence = 70
+    if safety.get("available"):
+        confidence += 8
+    if holders.get("available"):
+        confidence += 8
+    if market:
+        confidence += 6
+    confidence = min(92, confidence)
+
+    is_solana = (
+        str(scan_result.get("chain") or "").lower() == "solana"
+        or scan_result.get("query_type") == "solana_mint"
+    )
+
+    market_text = (
+        f"DexScreener shows liquidity of ${float(market.get('liquidity_usd') or 0):,.0f}, "
+        f"24h volume of ${float(market.get('volume_24h') or 0):,.0f}, "
+        f"and 24h change of {market.get('price_change_24h')}%."
+    ) if market else "Market source not connected."
+
+    social_text = (
+        f"Social Heat v1 is {social.get('heat_score')}. "
+        f"Telegram mentions in 72h: {(social.get('telegram') or {}).get('mentions_72h', 0)}; "
+        f"Dex activity score: {(social.get('dex_activity') or {}).get('score', 0)}."
+    ) if social else "Social source not connected."
+
+    if is_solana:
+        return {
+            "source": "local_fallback",
+            "verdict": verdict,
+            "confidence": confidence,
+            "executive_summary": (
+                f"{symbol} has live Solana v1 market, metadata and social-heat data available. "
+                f"Current scores are social heat {social_heat} and liquidity health {liquidity_health}. "
+                f"Solana-specific safety, holder and deployer sources are not connected yet. "
+                f"Active flags: {flag_text}."
+            ),
+            "risk_breakdown": {
+                "market": market_text,
+                "contract": "EVM safety providers are not applicable for Solana v1. Use Solscan, RugCheck, Helius or Birdeye in the next Solana layer.",
+                "holders": "Solana holder and wallet-cluster source is not connected yet.",
+                "social": social_text,
+                "liquidity": f"Liquidity health score is {liquidity_health}/100.",
+            },
+            "what_is_confirmed": [
+                "DexScreener Solana market pair data is connected" if market else None,
+                "CoinGecko metadata is connected when not rate-limited",
+                "Telegram + Dex activity Social Heat v1 is connected" if social else None,
+            ],
+            "what_is_pending": [
+                "Solscan / Helius holder and deployer data",
+                "RugCheck Solana safety layer",
+                "Birdeye / Jupiter / Pump.fun / Raydium launch and trading context",
+                "Reddit and richer social intelligence",
+            ],
+            "red_flags_explained": [
+                "No active red flags from connected Solana v1 sources." if not red_flags else None,
+            ],
+            "recommended_action": "monitor",
+            "next_checks": [
+                "Add Solscan or Helius for deployer, holders and wallet structure",
+                "Add RugCheck for Solana safety checks",
+                "Add Birdeye/Jupiter/Pump.fun/Raydium for Solana trading and launch context",
+                "Add Reddit and X confirmation layers for narrative/caller validation",
+            ],
+        }
+
+    return {
+        "source": "local_fallback",
+        "verdict": verdict,
+        "confidence": confidence,
+        "executive_summary": (
+            f"{symbol} has live market, contract-safety, social-heat and holder data available. "
+            f"Current scores are risk {risk_score}, social heat {social_heat}, holder risk {holder_risk}, "
+            f"and liquidity health {liquidity_health}. Active flags: {flag_text}."
+        ),
+        "risk_breakdown": {
+            "market": market_text,
+            "contract": (
+                f"GoPlus/Honeypot safety is connected. Honeypot flag is "
+                f"{safety.get('checks', {}).get('honeypot_is_honeypot', safety.get('checks', {}).get('honeypot'))}, "
+                f"buy tax is {safety.get('checks', {}).get('buy_tax')}%, sell tax is {safety.get('checks', {}).get('sell_tax')}%, "
+                f"and active safety flags are {', '.join(safety.get('red_flags') or []) or 'none'}."
+            ) if safety.get("available") else "Contract safety source not connected.",
+            "holders": (
+                f"TopHolders sample size is {holders.get('holder_count_sample')}. "
+                f"Top 1 holder controls {(holders.get('top_1_share') or 0) * 100:.2f}%, "
+                f"top 5 control {(holders.get('top_5_share') or 0) * 100:.2f}%, "
+                f"and top 10 control {(holders.get('top_10_share') or 0) * 100:.2f}%."
+            ) if holders.get("available") else "Holder source not connected.",
+            "social": social_text,
+            "liquidity": f"Liquidity health score is {liquidity_health}/100.",
+        },
+        "what_is_confirmed": [
+            "DexScreener market pair data is connected" if market else None,
+            "GoPlus and Honeypot.is contract-safety checks are connected" if safety.get("available") else None,
+            "TopHolders concentration data is connected" if holders.get("available") else None,
+            "Telegram + Dex activity Social Heat v1 is connected" if social else None,
+        ],
+        "what_is_pending": [
+            "Deep wallet/deployer history",
+            "CoinGecko/GeckoTerminal trending expansion",
+            "Reddit and richer social intelligence",
+            "Manual verification of provider-specific blacklist flags",
+        ],
+        "red_flags_explained": [
+            "GoPlus returned a blacklist-related flag; treat it as a review flag, not an absolute verdict." if "blacklist" in red_flags else None,
+            "Top 10 holder concentration is high based on the TopHolders sample." if "holder_concentration_high" in red_flags else None,
+            "Tax risk was detected by GoPlus or Honeypot.is." if ("high_tax" in red_flags or "elevated_tax" in red_flags) else None,
+        ],
+        "recommended_action": "request_more_data" if red_flags else "monitor",
+        "next_checks": [
+            "Verify blacklist flag manually in GoPlus/explorer context",
+            "Add deployer wallet and previous-launch history",
+            "Add deeper holder cluster and whale movement checks",
+            "Add CoinGecko/GeckoTerminal trending and Reddit layer",
+        ],
+    }
+
+
+async def generate_osint_ai_analysis(scan_result: dict) -> dict:
+    fallback = build_local_osint_ai_analysis(scan_result)
+
+    try:
+        import json as json_lib
+
+        compact_payload = {
+            "identity": scan_result.get("identity"),
+            "market": scan_result.get("market"),
+            "contract_safety": scan_result.get("contract_safety"),
+            "social": scan_result.get("social"),
+            "holders": scan_result.get("holders"),
+            "scores": scan_result.get("scores"),
+            "red_flags": scan_result.get("red_flags"),
+            "preliminary_verdict": scan_result.get("ai_verdict"),
+        }
+
+        system_instruction = (
+            "You are a crypto OSINT and token-risk analyst. Respond in English only. "
+            "Use only the supplied facts. Do not invent missing data. "
+            "Distinguish confirmed findings from pending checks. "
+            "Return strict JSON only."
+        )
+
+        prompt = f"""Analyze this Token OSINT scan and produce a practical due-diligence report.
+
+Input JSON:
+{json_lib.dumps(compact_payload, default=str)[:24000]}
+
+Return strict JSON with this shape:
+{{
+  "source": "openrouter",
+  "verdict": "Monitor|Watch|Risky|Reject|Request More Data",
+  "confidence": 0-100,
+  "executive_summary": "concise but useful summary",
+  "risk_breakdown": {{
+    "market": "...",
+    "contract": "...",
+    "holders": "...",
+    "social": "...",
+    "liquidity": "..."
+  }},
+  "what_is_confirmed": ["..."],
+  "what_is_pending": ["..."],
+  "red_flags_explained": ["..."],
+  "recommended_action": "monitor|watch|request_more_data|reject",
+  "next_checks": ["..."]
+}}"""
+
+        ai_result = await call_openai_compatible_json(
+            system_instruction=system_instruction,
+            user_prompt=prompt,
+            temperature=0.1,
+            max_tokens=2200,
+        )
+
+        if ai_result.get("ok") and ai_result.get("json"):
+            parsed = ai_result["json"]
+            parsed["source"] = ai_result.get("provider") or parsed.get("source") or "openai_compatible"
+            parsed["model"] = ai_result.get("model")
+            return parsed
+
+        logger.warning(
+            "OpenAI/OpenRouter OSINT analysis failed - using local fallback. provider=%s error=%s",
+            ai_result.get("provider"),
+            ai_result.get("error"),
+        )
+        fallback["source"] = "local_fallback"
+        return fallback
+
+    except Exception as exc:
+        logger.warning(f"OpenAI/OpenRouter OSINT analysis error - using local fallback: {exc}")
+        fallback["source"] = "local_fallback"
+        return fallback
+
+
+def build_osint_email_report_html(scan_result: dict, analysis: dict, user_email: str) -> str:
+    identity = scan_result.get("identity") or {}
+    market = scan_result.get("market") or {}
+    safety = scan_result.get("contract_safety") or {}
+    checks = safety.get("checks") or {}
+    social = scan_result.get("social") or {}
+    holders = scan_result.get("holders") or {}
+    scores = scan_result.get("scores") or {}
+    red_flags = scan_result.get("red_flags") or []
+
+    symbol = identity.get("symbol") or scan_result.get("query") or "Token"
+    name = identity.get("name") or symbol
+
+    def safe(value):
+        if value is None or value == "":
+            return "—"
+        return str(value)
+
+    def money(value):
+        try:
+            return f"${float(value):,.2f}"
+        except Exception:
+            return "—"
+
+    def pct_from_share(value):
+        try:
+            return f"{float(value) * 100:.2f}%"
+        except Exception:
+            return "—"
+
+    def list_html(items):
+        clean = [x for x in (items or []) if x]
+        if not clean:
+            clean = ["—"]
+        return "".join(f"<li style='margin:4px 0'>{safe(x)}</li>" for x in clean)
+
+    risk_breakdown = analysis.get("risk_breakdown") or {}
+
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:760px;margin:0 auto;background:#08111f;color:#e5e7eb;padding:24px;border-radius:16px">
+      <div style="border:1px solid rgba(148,163,184,.25);background:#0f1b2d;border-radius:16px;padding:20px">
+        <h1 style="margin:0;color:#fff;font-size:24px">Token OSINT Report — {safe(name)} / {safe(symbol)}</h1>
+        <p style="margin:8px 0 0;color:#94a3b8;font-size:13px">Sent to {safe(user_email)} · Chain: {safe(scan_result.get("chain"))} · Scan ID: {safe(scan_result.get("scan_id"))}</p>
+        <p style="margin:14px 0 0">
+          <span style="display:inline-block;border:1px solid #334155;border-radius:999px;padding:6px 10px;margin-right:6px;color:#bfdbfe">Verdict: {safe(analysis.get("verdict") or (scan_result.get("ai_verdict") or {}).get("label"))}</span>
+          <span style="display:inline-block;border:1px solid #334155;border-radius:999px;padding:6px 10px;margin-right:6px;color:#bfdbfe">Confidence: {safe(analysis.get("confidence") or (scan_result.get("ai_verdict") or {}).get("confidence"))}%</span>
+          <span style="display:inline-block;border:1px solid #334155;border-radius:999px;padding:6px 10px;color:#bfdbfe">Source: {"Rules-based fallback" if analysis.get("source") == "local_fallback" else safe(analysis.get("source") or "preliminary")}</span>
+        </p>
+      </div>
+
+      <h2 style="color:#60a5fa;margin:24px 0 10px;font-size:18px">Executive Summary</h2>
+      <div style="border:1px solid rgba(148,163,184,.25);background:#0f1b2d;border-radius:14px;padding:16px">
+        <p style="color:#cbd5e1;line-height:1.5;margin:0">{safe(analysis.get("executive_summary") or (scan_result.get("ai_verdict") or {}).get("summary"))}</p>
+      </div>
+
+      <h2 style="color:#60a5fa;margin:24px 0 10px;font-size:18px">Scores</h2>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
+        <div style="background:#0f1b2d;border:1px solid #334155;border-radius:12px;padding:14px"><div style="color:#94a3b8;font-size:12px">Risk Score</div><div style="font-size:28px;font-weight:bold;color:#fbbf24">{safe(scores.get("risk_score"))}</div></div>
+        <div style="background:#0f1b2d;border:1px solid #334155;border-radius:12px;padding:14px"><div style="color:#94a3b8;font-size:12px">Social Heat</div><div style="font-size:28px;font-weight:bold;color:#60a5fa">{safe(scores.get("social_heat"))}</div></div>
+        <div style="background:#0f1b2d;border:1px solid #334155;border-radius:12px;padding:14px"><div style="color:#94a3b8;font-size:12px">Holder Risk</div><div style="font-size:28px;font-weight:bold;color:#fb7185">{safe(scores.get("holder_risk"))}</div></div>
+        <div style="background:#0f1b2d;border:1px solid #334155;border-radius:12px;padding:14px"><div style="color:#94a3b8;font-size:12px">Liquidity Health</div><div style="font-size:28px;font-weight:bold;color:#34d399">{safe(scores.get("liquidity_health"))}</div></div>
+      </div>
+
+      <h2 style="color:#60a5fa;margin:24px 0 10px;font-size:18px">Token Identity</h2>
+      <div style="background:#0f1b2d;border:1px solid #334155;border-radius:12px;padding:14px;color:#cbd5e1">
+        <p><strong>Name:</strong> {safe(identity.get("name"))}</p>
+        <p><strong>Symbol:</strong> {safe(identity.get("symbol"))}</p>
+        <p><strong>Contract:</strong> <span style="word-break:break-all">{safe(identity.get("contract"))}</span></p>
+        <p><strong>Category:</strong> {safe(identity.get("category"))}</p>
+      </div>
+
+      <h2 style="color:#60a5fa;margin:24px 0 10px;font-size:18px">Market</h2>
+      <div style="background:#0f1b2d;border:1px solid #334155;border-radius:12px;padding:14px;color:#cbd5e1">
+        <p><strong>DEX:</strong> {safe(market.get("dex"))}</p>
+        <p><strong>Price:</strong> {safe(market.get("price_usd"))}</p>
+        <p><strong>Liquidity:</strong> {money(market.get("liquidity_usd"))}</p>
+        <p><strong>24h Volume:</strong> {money(market.get("volume_24h"))}</p>
+        <p><strong>24h Change:</strong> {safe(market.get("price_change_24h"))}%</p>
+        {f'<p><strong>Pair:</strong> <a href="{market.get("pair_url")}" style="color:#60a5fa">DexScreener</a></p>' if market.get("pair_url") else ""}
+      </div>
+
+      <h2 style="color:#60a5fa;margin:24px 0 10px;font-size:18px">Contract Safety</h2>
+      <div style="background:#0f1b2d;border:1px solid #334155;border-radius:12px;padding:14px;color:#cbd5e1">
+        <p><strong>Provider:</strong> {safe(safety.get("provider"))}</p>
+        <p><strong>Honeypot:</strong> {safe(checks.get("honeypot_is_honeypot", checks.get("honeypot")))}</p>
+        <p><strong>Open Source:</strong> {safe(checks.get("open_source"))}</p>
+        <p><strong>Blacklist Flag:</strong> {safe(checks.get("blacklist"))}</p>
+        <p><strong>Buy/Sell Tax:</strong> {safe(checks.get("buy_tax"))}% / {safe(checks.get("sell_tax"))}%</p>
+      </div>
+
+      <h2 style="color:#60a5fa;margin:24px 0 10px;font-size:18px">Social & Holders</h2>
+      <div style="background:#0f1b2d;border:1px solid #334155;border-radius:12px;padding:14px;color:#cbd5e1">
+        <p><strong>Social Heat:</strong> {safe(social.get("heat_score"))}</p>
+        <p><strong>Telegram 72h:</strong> {safe((social.get("telegram") or {}).get("mentions_72h"))} mentions · {safe((social.get("telegram") or {}).get("useful_signals"))} useful</p>
+        <p><strong>Holder Provider:</strong> {safe(holders.get("provider"))}</p>
+        <p><strong>Top 1 / Top 5 / Top 10:</strong> {pct_from_share(holders.get("top_1_share"))} / {pct_from_share(holders.get("top_5_share"))} / {pct_from_share(holders.get("top_10_share"))}</p>
+      </div>
+
+      <h2 style="color:#60a5fa;margin:24px 0 10px;font-size:18px">Red Flags</h2>
+      <div style="background:#0f1b2d;border:1px solid #334155;border-radius:12px;padding:14px;color:#cbd5e1">
+        <ul>{list_html(red_flags or ["No active red flags from connected sources."])}</ul>
+      </div>
+
+      <h2 style="color:#60a5fa;margin:24px 0 10px;font-size:18px">Full Analysis</h2>
+      <div style="background:#0f1b2d;border:1px solid #334155;border-radius:12px;padding:14px;color:#cbd5e1">
+        <p><strong>Market:</strong> {safe(risk_breakdown.get("market"))}</p>
+        <p><strong>Contract:</strong> {safe(risk_breakdown.get("contract"))}</p>
+        <p><strong>Holders:</strong> {safe(risk_breakdown.get("holders"))}</p>
+        <p><strong>Social:</strong> {safe(risk_breakdown.get("social"))}</p>
+        <p><strong>Liquidity:</strong> {safe(risk_breakdown.get("liquidity"))}</p>
+      </div>
+
+      <h2 style="color:#60a5fa;margin:24px 0 10px;font-size:18px">Confirmed / Pending / Next Checks</h2>
+      <div style="background:#0f1b2d;border:1px solid #334155;border-radius:12px;padding:14px;color:#cbd5e1">
+        <p><strong>Confirmed:</strong></p><ul>{list_html(analysis.get("what_is_confirmed") or [])}</ul>
+        <p><strong>Pending:</strong></p><ul>{list_html(analysis.get("what_is_pending") or [])}</ul>
+        <p><strong>Red Flags Explained:</strong></p><ul>{list_html(analysis.get("red_flags_explained") or [])}</ul>
+        <p><strong>Next Checks:</strong></p><ul>{list_html(analysis.get("next_checks") or [])}</ul>
+      </div>
+
+      <p style="color:#64748b;font-size:12px;margin-top:22px">
+        Generated by PumpRadar Token OSINT Lab. This report is for due diligence and informational purposes only. It is not financial advice.
+      </p>
+    </div>
+    """
+
+
+@app.post("/api/osint/email-report/{scan_id}")
+async def token_osint_email_report(scan_id: str, user=Depends(get_current_user)):
+    try:
+        doc = await db.osint_scans.find_one({
+            "_id": ObjectId(scan_id),
+            "user_id": str(user["_id"]),
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid scan_id")
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="scan not found")
+
+    result = doc.get("result") or {}
+    result["scan_id"] = str(doc["_id"])
+
+    analysis = doc.get("full_ai_analysis") or result.get("full_ai_analysis")
+    if not analysis:
+        analysis = await generate_osint_ai_analysis(result)
+        await db.osint_scans.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {
+                "full_ai_analysis": analysis,
+                "full_ai_analysis_updated_at": datetime.utcnow(),
+                "result.full_ai_analysis": analysis,
+            }}
+        )
+
+    email = user.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="user email not found")
+
+    html = build_osint_email_report_html(result, analysis, email)
+    symbol = ((result.get("identity") or {}).get("symbol") or result.get("query") or "Token").upper()
+
+    try:
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": f"PumpRadar OSINT <{SENDER_EMAIL}>",
+            "to": [email],
+            "subject": f"Token OSINT Report: {symbol}",
+            "html": html,
+        })
+        await db.osint_scans.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {
+                "report_emailed_at": datetime.utcnow(),
+                "report_emailed_to": email,
+            }}
+        )
+    except Exception as exc:
+        logger.error(f"OSINT report email error: {exc}")
+        raise HTTPException(status_code=500, detail="email send failed")
+
+    return api_ok({
+        "message": "OSINT report sent",
+        "email": email,
+        "scan_id": str(doc["_id"]),
+    })
+
+
+@app.post("/api/osint/analyze/{scan_id}")
+async def token_osint_full_ai_analysis(scan_id: str, user=Depends(get_current_user)):
+    try:
+        doc = await db.osint_scans.find_one({
+            "_id": ObjectId(scan_id),
+            "user_id": str(user["_id"]),
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid scan_id")
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="scan not found")
+
+    result = doc.get("result") or {}
+    analysis = await generate_osint_ai_analysis(result)
+
+    await db.osint_scans.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {
+            "full_ai_analysis": analysis,
+            "full_ai_analysis_updated_at": datetime.utcnow(),
+            "result.full_ai_analysis": analysis,
+        }}
+    )
+
+    return api_ok({
+        "scan_id": str(doc["_id"]),
+        "analysis": analysis,
+    })
+
+
+@app.get("/api/osint/history")
+async def token_osint_history(limit: int = 25, user=Depends(get_current_user)):
+    limit = max(1, min(int(limit or 25), 100))
+
+    docs = await db.osint_scans.find({
+        "user_id": str(user["_id"]),
+    }).sort("created_at", -1).limit(limit).to_list(length=limit)
+
+    items = []
+    for doc in docs:
+        result = doc.get("result") or {}
+        created_at = doc.get("created_at")
+        items.append({
+            "id": str(doc.get("_id")),
+            "created_at": created_at.isoformat() if isinstance(created_at, datetime) else created_at,
+            "query": doc.get("query"),
+            "query_type": result.get("query_type") or doc.get("query_type"),
+            "symbol": doc.get("symbol"),
+            "contract": doc.get("contract"),
+            "chain": doc.get("chain"),
+            "verdict": doc.get("verdict"),
+            "scores": doc.get("scores") or {},
+            "red_flags": doc.get("red_flags") or [],
+            "risk_score": (doc.get("scores") or {}).get("risk_score"),
+            "social_heat": (doc.get("scores") or {}).get("social_heat"),
+            "holder_risk": (doc.get("scores") or {}).get("holder_risk"),
+            "liquidity_health": (doc.get("scores") or {}).get("liquidity_health"),
+        })
+
+    return api_ok({
+        "items": items,
+        "total": len(items),
+    })
+
+
+@app.get("/api/osint/history/{scan_id}")
+async def token_osint_history_detail(scan_id: str, user=Depends(get_current_user)):
+    try:
+        doc = await db.osint_scans.find_one({
+            "_id": ObjectId(scan_id),
+            "user_id": str(user["_id"]),
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid scan_id")
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="scan not found")
+
+    result = doc.get("result") or {}
+    result["scan_id"] = str(doc["_id"])
+    result["saved"] = True
+    result["created_at"] = doc.get("created_at").isoformat() if isinstance(doc.get("created_at"), datetime) else doc.get("created_at")
+
+    return api_ok(result)
+
 
 # ─────────────────────────────────────────────
 # HEALTH

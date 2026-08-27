@@ -12,6 +12,7 @@ const AIChatPage = lazy(() => import('../pages/AIChatPage'));
 const AdminPage = lazy(() => import('../pages/AdminPage'));
 const CoinDetailPage = lazy(() => import('../pages/CoinDetailPage'));
 const WhalePage = lazy(() => import('../pages/WhalePage'));
+const WhaleAlertsPage = lazy(() => import('../pages/WhaleAlertsPage'));
 const ManipulationPage = lazy(() => import('../pages/ManipulationPage'));
 const SuperAdminPage = lazy(() => import('../pages/SuperAdminPage'));
 const HistoryPage = lazy(() => import('../pages/HistoryPage'));
@@ -20,6 +21,10 @@ const DexPage = lazy(() => import('../pages/DexPage'));
 const RiskPage = lazy(() => import('../pages/RiskPage'));
 const TelegramSignalsPage = lazy(() => import('../pages/TelegramSignalsPage'));
 const OnChainRadarPage = lazy(() => import('../pages/OnChainRadarPage'));
+const TrackRecordPage = lazy(() => import('../pages/TrackRecordPage'));
+const FreeScanPage = lazy(() => import('../pages/FreeScanPage'));
+const InfoPage = lazy(() => import('../pages/InfoPage'));
+const SolbotDashboardPage = lazy(() => import('../pages/SolbotDashboardPage'));
 const HIDDEN_WORKSPACE_PATH = '/signal-lab-7f3a9c21';
 
 export const CRYPTO_ROUTES: ModuleRoute[] = [
@@ -36,10 +41,20 @@ export const CRYPTO_ROUTES: ModuleRoute[] = [
   { path: CRYPTO_PATHS.ADMIN, module: 'crypto', layout: 'app', title: 'Admin Panel', component: AdminPage },
   { path: CRYPTO_PATHS.COIN_DETAIL, module: 'crypto', layout: 'app', title: 'Coin Details', component: CoinDetailPage },
   { path: CRYPTO_PATHS.WHALE, module: 'crypto', layout: 'app', title: 'Whale Activity', component: WhalePage },
+  { path: CRYPTO_PATHS.WHALE_ALERTS, module: 'crypto', layout: 'app', title: 'Whale Alerts', component: WhaleAlertsPage },
   { path: CRYPTO_PATHS.MANIPULATION, module: 'crypto', layout: 'app', title: 'Manipulation Risk', component: ManipulationPage },
   { path: CRYPTO_PATHS.DEX, module: 'crypto', layout: 'app', title: 'DEX Signals', component: DexPage },
   { path: CRYPTO_PATHS.RISK, module: 'crypto', layout: 'app', title: 'Risk Signals', component: RiskPage },
   { path: CRYPTO_PATHS.ONCHAIN, module: 'crypto', layout: 'app', title: 'On-Chain Radar', component: OnChainRadarPage },
+  { path: CRYPTO_PATHS.SCAN, module: 'crypto', layout: 'none', title: 'Free Token Scan', component: FreeScanPage },
+  { path: CRYPTO_PATHS.TRACK_RECORD, module: 'crypto', layout: 'none', title: 'Past Calls', component: TrackRecordPage },
+  { path: CRYPTO_PATHS.ABOUT, module: 'crypto', layout: 'none', title: 'About', component: InfoPage },
+  { path: CRYPTO_PATHS.DOCS, module: 'crypto', layout: 'none', title: 'Docs', component: InfoPage },
+  { path: CRYPTO_PATHS.STATUS, module: 'crypto', layout: 'none', title: 'Status', component: InfoPage },
+  { path: CRYPTO_PATHS.CONTACT, module: 'crypto', layout: 'none', title: 'Contact', component: InfoPage },
+  { path: CRYPTO_PATHS.PRIVACY, module: 'crypto', layout: 'none', title: 'Privacy', component: InfoPage },
+  { path: CRYPTO_PATHS.TERMS, module: 'crypto', layout: 'none', title: 'Terms', component: InfoPage },
+  { path: CRYPTO_PATHS.SOLBOT, module: 'crypto', layout: 'app', title: 'Solbot Dashboard', component: SolbotDashboardPage },
   { path: HIDDEN_WORKSPACE_PATH, module: 'crypto', layout: 'auth', title: 'Workspace', component: SuperAdminPage },
 ];
 

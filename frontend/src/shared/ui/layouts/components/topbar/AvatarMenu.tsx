@@ -2,7 +2,7 @@ import React from 'react';
 import AnimatedDropdown from '@/shared/ui/components/animated-dropdown/AnimatedDropdown';
 import AnimatedDropdownTrigger from '@/shared/ui/components/animated-dropdown/AnimatedDropdownTrigger';
 import AnimatedDropdownContent from '@/shared/ui/components/animated-dropdown/AnimatedDropdownContent';
-import { LogOut, LayoutDashboard, CreditCard, MessageCircle } from 'lucide-react';
+import { LogOut, LayoutDashboard, CreditCard } from 'lucide-react';
 import { FloatingHover } from '@/shared/ui/components/FloatingHover';
 import { useHoverBackground } from '@/shared/hooks/useHoverBackground';
 import ThemeToggler from '@/shared/ui/components/ThemeToggler';
@@ -38,7 +38,6 @@ const AvatarMenu: React.FC = () => {
   const menuEntries = React.useMemo<MenuEntry[]>(() => [
     { type: 'item', key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, onClick: () => navigate('/dashboard') },
     { type: 'item', key: 'subscription', label: 'Subscription', icon: CreditCard, onClick: () => navigate('/subscription') },
-    { type: 'item', key: 'ai-chat', label: 'AI Assistant', icon: MessageCircle, onClick: () => navigate('/ai-chat') },
     { type: 'separator', key: 'sep' },
     { type: 'item', key: 'logout', label: 'Sign Out', icon: LogOut, onClick: handleLogout, variant: 'danger' as const },
   ], [navigate, handleLogout]);

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Activity, BarChart3, CircleDot, Info, RefreshCw, Search, Send, ShieldCheck, TrendingDown, TrendingUp, XCircle } from 'lucide-react';
+import { Activity, BarChart3, CircleDot, Info, Search, Send, ShieldCheck, TrendingDown, TrendingUp, XCircle } from 'lucide-react';
 import { Card, CardContent } from '@/shared/ui/shadcn/components/ui/card';
 import { Badge } from '@/shared/ui/shadcn/components/ui/badge';
-import { Button } from '@/shared/ui/shadcn/components/ui/button';
 import { readStoredToken } from '@/shared/utils/tokenStorage';
 
 const getToken = () => readStoredToken();
@@ -109,9 +108,9 @@ export default function TelegramSignalsPage() {
   const [summary, setSummary] = useState<TelegramSummary | null>(null);
   const [consensus, setConsensus] = useState<TelegramConsensus | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [qualityFilter, setQualityFilter] = useState<'useful' | 'all' | 'clean' | 'possible' | 'filtered' | 'marketing' | 'noise'>('all');
+  const [qualityFilter, setQualityFilter] = useState<'useful' | 'all' | 'clean' | 'possible' | 'filtered' | 'marketing' | 'noise'>('useful');
   const [directionFilter, setDirectionFilter] = useState<'all' | 'pump' | 'dump'>('all');
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
 
   const fetchData = async () => {
     setLoading(true);
@@ -156,12 +155,13 @@ export default function TelegramSignalsPage() {
   }, []);
 
   const activeSources = sources.filter(source => source.enabled);
-  const topSources = activeSources.slice(0, 6);
+  const topSources = activeSources;
   const formatDateTime = (value?: string | null) => value ? new Date(value).toLocaleString() : 'n/a';
   const qualityBadgeStyles: Record<string, string> = {
     'High Signal Quality': 'bg-emerald-500/15 text-emerald-600',
     'Fast but Risky': 'bg-amber-500/15 text-amber-600',
     'Mostly Noise': 'bg-red-500/15 text-red-500',
+    'Not enough data': 'bg-slate-500/15 text-slate-400',
     'Reliable Bearish Source': 'bg-violet-500/15 text-violet-600',
     'Mixed Quality': 'bg-slate-500/15 text-slate-500',
   };
@@ -244,12 +244,10 @@ export default function TelegramSignalsPage() {
               className="h-10 rounded-xl border border-white/10 bg-slate-950/70 px-3 text-sm text-slate-200 outline-none"
               aria-label="Quality filter"
             >
-              <option value="useful">Useful only</option>\n              <option value="all">All quality</option>
+              <option value="useful">Useful only</option>
+              <option value="all">All quality</option>
               <option value="clean">Clean</option>
               <option value="possible">Possible</option>
-              <option value="filtered">Filtered</option>
-              <option value="marketing">Marketing / Proof</option>
-              <option value="noise">Noise</option>
             </select>
 
             <select
@@ -263,10 +261,7 @@ export default function TelegramSignalsPage() {
               <option value="dump">Dump</option>
             </select>
 
-            <Button variant="outline" size="sm" onClick={fetchData} disabled={loading} className="h-10 gap-2 border-white/10 bg-slate-950/70 text-slate-200">
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
+
           </div>
         </div>
       </div>
@@ -399,15 +394,37 @@ export default function TelegramSignalsPage() {
               </div>
             </div>
 
-            <div className="relative h-44 overflow-hidden rounded-xl border border-white/10 bg-[#07101d] p-4">
-              <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(148,163,184,0.08)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.08)_1px,transparent_1px)] bg-[size:90px_40px]" />
-              <svg viewBox="0 0 860 180" className="relative z-10 h-full w-full">
-                <path d="M10 135 C80 115 120 138 170 118 C220 95 260 50 310 68 C360 92 390 108 440 100 C500 94 540 128 590 96 C640 68 680 120 725 88 C770 56 815 78 850 30" fill="none" stroke="#38bdf8" strokeWidth="3" />
-                <path d="M10 154 C85 132 130 148 180 132 C230 118 260 90 315 98 C370 112 410 128 455 122 C505 116 545 140 595 123 C645 102 690 138 735 111 C785 88 820 108 850 60" fill="none" stroke="#a855f7" strokeWidth="3" />
-              </svg>
-              <div className="absolute bottom-2 left-4 right-4 z-20 flex justify-between text-[11px] text-slate-500">
-                <span>24h</span><span>20h</span><span>16h</span><span>12h</span><span>8h</span><span>4h</span><span>Now</span>
-              </div>
+            <div className="rounded-xl border border-white/10 bg-[#07101d] p-4">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Crowd Sentiment · parsed mentions</div>
+              {(() => {
+                const bull = (summary?.pump ?? 0);
+                const bear = (summary?.dump ?? 0);
+                const total = Math.max(1, bull + bear);
+                const bullPct = Math.round((bull / total) * 100);
+                const bearPct = 100 - bullPct;
+                return (
+                  <div className="space-y-3">
+                    <div>
+                      <div className="mb-1 flex justify-between text-xs">
+                        <span className="font-medium text-emerald-300">Bullish</span>
+                        <span className="text-slate-400">{bull} · {bullPct}%</span>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-slate-800">
+                        <div className="h-full rounded-full bg-emerald-400" style={{ width: `${bullPct}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-1 flex justify-between text-xs">
+                        <span className="font-medium text-red-300">Bearish</span>
+                        <span className="text-slate-400">{bear} · {bearPct}%</span>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-slate-800">
+                        <div className="h-full rounded-full bg-red-400" style={{ width: `${bearPct}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -434,13 +451,21 @@ export default function TelegramSignalsPage() {
           <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-4">
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <h3 className="font-semibold text-white">Active Sources</h3>
-                <p className="text-xs text-slate-500">{topSources.length} shown · {activeSources.length} active</p>
+                <h3 className="flex items-center gap-1.5 font-semibold text-white">
+                  Active Sources
+                  <span className="group relative inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-slate-400/40 text-[10px] text-slate-300">
+                    i
+                    <span className="pointer-events-none absolute left-1/2 top-6 z-50 hidden w-72 -translate-x-1/2 rounded-lg border border-slate-400/30 bg-slate-950 px-3 py-2 text-left text-xs font-normal leading-relaxed text-slate-200 shadow-xl group-hover:block">
+                      Telegram channels monitored for signals. The badge shows quality: red "Mostly Noise" = enough data, mostly low-value/marketing posts; gray "Not enough data" = too few parsed messages to judge yet. Helps you decide which sources are worth keeping.
+                    </span>
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500">{activeSources.length} active sources</p>
               </div>
               <ShieldCheck className="h-5 w-5 text-blue-300" />
             </div>
             <div className="space-y-3">
-              {topSources.slice(0, 5).map(source => (
+              {topSources.map(source => (
                 <div key={source.id} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-500/15">
                     <Send className="h-4 w-4 text-blue-300" />
@@ -483,7 +508,6 @@ export default function TelegramSignalsPage() {
                   <th className="px-4 py-3 text-left">Quality</th>
                   <th className="px-4 py-3 text-left">Source</th>
                   <th className="px-4 py-3 text-left">Score</th>
-                  <th className="px-4 py-3 text-left">Status</th>
                   <th className="px-4 py-3 text-left">Posted</th>
                   <th className="px-4 py-3 text-left">AI Read</th>
                 </tr>
@@ -586,11 +610,6 @@ export default function TelegramSignalsPage() {
                         </div>
                       </td>
 
-                      <td className="px-4 py-3">
-                        <Badge className="border border-slate-500/20 bg-slate-500/15 text-slate-300">
-                          {displayLabel}
-                        </Badge>
-                      </td>
 
                       <td className="px-4 py-3 text-xs text-slate-400">
                         {formatDateTime(signal.posted_at)}
@@ -603,8 +622,20 @@ export default function TelegramSignalsPage() {
                   );
                 }) : (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">
-                      Telegram feed is empty.
+                    <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">
+                      {signals.length > 0 && qualityFilter === 'useful' ? (
+                        <span>
+                          No actionable (Clean/Possible) signals right now.{' '}
+                          <button
+                            onClick={() => setQualityFilter('all')}
+                            className="text-sky-400 underline hover:text-sky-300"
+                          >
+                            Show all {signals.length} parsed messages
+                          </button>
+                        </span>
+                      ) : (
+                        'Telegram feed is empty.'
+                      )}
                     </td>
                   </tr>
                 )}

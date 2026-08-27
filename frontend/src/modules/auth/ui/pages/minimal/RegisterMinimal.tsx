@@ -1,6 +1,7 @@
 import React from 'react';
 import LayoutMinimal from '../../layouts/LayoutMinimal';
 import RegisterForm from '../../components/forms/RegisterForm';
+import OauthButtons from '../../components/OauthButtons';
 import FormHeader from '../../../../../shared/ui/components/forms/layout/FormHeader';
 import { nextLink } from '../../components/navLinks';
 import { Link, useNavigate } from 'react-router-dom';
@@ -32,9 +33,7 @@ const RegisterMinimal: React.FC = () => {
       }
       footer={<span>Already have an account? <Link className="text-blue-600" to={link.to}>Sign in</Link></span>}
     >
-      <div className="mb-6 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-        Google sign-up is temporarily unavailable. Create your account with email and continue to card setup after verification.
-      </div>
+      <div className="mb-6"><OauthButtons /></div>
       <RegisterForm onSuccess={handleRegisterSuccess} />
       
       <p className="text-xs text-muted-foreground text-center mt-4">

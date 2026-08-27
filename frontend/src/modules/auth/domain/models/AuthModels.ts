@@ -43,6 +43,7 @@ export interface RegisterDTO {
   password: string;
   name: string;
   confirmPassword?: string;
+  ref?: string;
 }
 
 export interface ForgotPasswordDTO {

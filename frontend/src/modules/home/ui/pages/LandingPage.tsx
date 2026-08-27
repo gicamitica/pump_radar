@@ -36,7 +36,7 @@ const PLANS = [
     name: 'Monthly',
     price: '29.99',
     period: '/month',
-    features: ['All pump & dump signals', 'Full AI signal analysis', 'Social momentum layer', 'Hourly signal refresh', 'Morning & evening signal digest', 'Priority support'],
+    features: ['All signals: pump, dump, rug, early & DEX', 'Full AI risk analysis & verdicts', 'Social momentum layer', 'Hourly re-scans', 'Morning & evening risk digest', 'Priority support'],
     cta: 'Subscribe Monthly',
     variant: 'primary',
     badge: 'Popular',
@@ -45,7 +45,7 @@ const PLANS = [
     name: 'Annual',
     price: '299.99',
     period: '/year',
-    features: ['All pump & dump signals', 'Full AI signal analysis', 'Social momentum layer', 'Hourly signal refresh', 'Morning & evening signal digest', 'Priority support', 'Save 2 months vs monthly'],
+    features: ['All signals: pump, dump, rug, early & DEX', 'Full AI risk analysis & verdicts', 'Social momentum layer', 'Hourly re-scans', 'Morning & evening risk digest', 'Priority support', 'Save 2 months vs monthly'],
     cta: 'Subscribe Annual',
     variant: 'outline',
     badge: 'Save 2 months',
@@ -532,6 +532,12 @@ export default function LandingPage() {
           </div>
           <p className="text-xs text-slate-500">Signals are not financial advice. Invest responsibly.</p>
           <div className="flex gap-4 text-xs text-slate-500">
+            <button onClick={() => navigate('/about')} className="hover:text-white transition-colors">About</button>
+            <button onClick={() => navigate('/docs')} className="hover:text-white transition-colors">Docs</button>
+            <button onClick={() => navigate('/status')} className="hover:text-white transition-colors">Status</button>
+            <button onClick={() => navigate('/contact')} className="hover:text-white transition-colors">Contact</button>
+            <button onClick={() => navigate('/privacy')} className="hover:text-white transition-colors">Privacy</button>
+            <button onClick={() => navigate('/terms')} className="hover:text-white transition-colors">Terms</button>
             <button onClick={() => navigate('/auth/login')} className="hover:text-white transition-colors">Login</button>
             <button onClick={() => navigate('/auth/register')} className="hover:text-white transition-colors">Register</button>
           </div>

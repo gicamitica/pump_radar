@@ -5,6 +5,7 @@ import { nextLink } from '../../components/navLinks';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import LoginForm from '../../components/forms/LoginForm';
+import OauthButtons from '../../components/OauthButtons';
 
 // PumpRadar Logo Component
 const PumpRadarLogo = () => (
@@ -28,9 +29,7 @@ const LoginMinimal: React.FC = () => {
       }
       footer={<span>Don't have an account? <Link className="text-blue-600 dark:text-blue-500" to={link.to}>{t('createOne','Create one')}</Link></span>}
     >
-      <div className="mb-6 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-        Google sign-in is temporarily unavailable. Continue with your email and password.
-      </div>
+      <div className="mb-6"><OauthButtons /></div>
       <LoginForm /> 
     </LayoutMinimal>
   );

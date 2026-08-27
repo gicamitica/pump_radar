@@ -67,7 +67,10 @@ function short(addr?: string | null): string {
 
 function timeAgo(iso?: string | null): string {
   if (!iso) return "";
-  const t = new Date(iso).getTime();
+  // Backend timestamps are UTC but arrive without a timezone marker, so the
+  // browser would otherwise read them as local time (3h off on UTC+3).
+  const hasTz = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso);
+  const t = new Date(hasTz ? iso : `${iso}Z`).getTime();
   if (Number.isNaN(t)) return "";
   const mins = Math.floor((Date.now() - t) / 60000);
   if (mins < 1) return "just now";
@@ -185,7 +188,7 @@ export default function OnChainRadarPage() {
   const load = useCallback(async () => {
     try {
       setError(null);
-      const res = await fetch(`${API_BASE}/api/crypto/onchain/new-pairs?since_minutes=1440&limit=200`);
+      const res = await fetch(`${API_BASE}/api/crypto/onchain/new-pairs?since_minutes=15&limit=200&min_liq_usd=10000&dedupe=true`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setEvents(Array.isArray(json.events) ? json.events : []);

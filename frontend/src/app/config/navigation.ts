@@ -184,6 +184,7 @@ export const navigationSections: NavGroup[] = [
       { id: 'onchain-radar', icon: 'eye', iconColor: 'emerald', to: '/onchain', navRole: 'primary' },
       { id: 'telegram-signals', icon: 'telegram', iconColor: 'cyan', to: '/telegram-signals', navRole: 'primary' },
       { id: 'watchlist', icon: 'heart-pulse', iconColor: 'amber', to: '/watchlist', navRole: 'primary' },
+      { id: 'whale-alerts', icon: 'bell', iconColor: 'rose', to: '/whale-alerts', navRole: 'primary' },
     ],
   },
   /* ───────── Tools ───────── */

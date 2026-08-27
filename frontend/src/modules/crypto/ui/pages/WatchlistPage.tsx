@@ -156,7 +156,8 @@ function SearchDropdown({ onSelect }: { onSelect: (contract: string, coin: CgCoi
           return { ...c, platforms: d.data.platforms || {} };
         } catch { return c; }
       }));
-      setResults(enriched);
+      const withContract = enriched.filter((c) => c.platforms && Object.values(c.platforms).some((v) => v));
+      setResults(withContract);
       setOpen(true);
     } catch { setResults([]); }
     setLoading(false);
@@ -410,6 +411,18 @@ export default function WatchlistPage() {
 
       {tokenData && !loading && (
         <>
+          {gp && (gp.is_honeypot === '1' || gp.cannot_sell_all === '1') && (
+            <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 flex items-start gap-3">
+              <span className="text-2xl">🚨</span>
+              <div>
+                <div className="text-base font-bold text-red-400">FAKE / HONEYPOT — DO NOT BUY</div>
+                <div className="text-xs text-red-300 mt-1">
+                  {gp.is_honeypot === '1' ? 'Honeypot detected: you can buy but cannot sell. ' : ''}
+                  {gp.cannot_sell_all === '1' ? 'Selling all tokens is blocked by the contract.' : ''}
+                </div>
+              </div>
+            </div>
+          )}
           {/* Token Header */}
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">

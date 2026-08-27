@@ -382,7 +382,6 @@ export default function CoinDetailPage() {
                 <div>
                   <div className="font-bold text-foreground mb-2">🤖 Why {signal.verdict}?</div>
                   <p>{signal.reason}</p>
-                  {signal.whale_accumulation && <p className="mt-1 text-blue-400">• Whale accumulation · score {signal.whale_score}/100</p>}
                   {signal.pre_pump_activity && <p className="mt-1 text-violet-400">• Pre-pump activity detected</p>}
                   {signal.multi_source && <p className="mt-1 text-purple-400">• Multi-source confirmation</p>}
                 </div>
@@ -469,18 +468,13 @@ export default function CoinDetailPage() {
       {/* Whale + Manip */}
       <div className="grid grid-cols-2 gap-3">
         <div onClick={() => navigate(`/coin/${signal.symbol}/whale`)}
-          className={`block rounded-2xl border p-3 cursor-pointer hover:border-blue-400/50 transition-colors ${signal.whale_accumulation?'bg-blue-500/5 border-blue-500/20':'bg-muted/20 border-border'}`}>
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">🐋 Whale Activity</div>
-          <div className={`text-base font-bold ${signal.whale_accumulation?'text-blue-400':'text-muted-foreground'}`}>
-            {signal.whale_accumulation?'Accumulating':'Not accumulating'}
-          </div>
-          <div className={`text-xs font-bold mt-0.5 ${signal.whale_accumulation?'text-blue-400':'text-muted-foreground'}`}>Score: {signal.whale_score}/100</div>
-          <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-2">
-            <div className="h-full rounded-full" style={{width:`${signal.whale_score}%`,background:signal.whale_score>=70?'#3b82f6':signal.whale_score>=40?'#f59e0b':'#6b7280'}}/>
-          </div>
-          <div className="text-[10px] text-muted-foreground mt-2">View whale details ↗</div>
+          className="block rounded-2xl border border-border bg-muted/20 p-3 cursor-pointer hover:border-blue-400/50 transition-colors">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">🐋 Whale Activity ↗</div>
+          <div className="text-base font-bold text-blue-400">On-chain analysis</div>
+          <div className="text-[11px] text-muted-foreground mt-1.5">Live Dune data · CEX flows · wash trading</div>
+          <div className="text-[10px] text-muted-foreground mt-3">View whale details ↗</div>
         </div>
-        <div onClick={() => navigate('/risk')} className="rounded-2xl border border-border bg-muted/20 p-3 cursor-pointer hover:border-amber-400/50 transition-colors">
+        <div onClick={() => navigate(`/coin/${signal.symbol}/manipulation`)} className="rounded-2xl border border-border bg-muted/20 p-3 cursor-pointer hover:border-amber-400/50 transition-colors">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">⚠️ Manipulation Risk ↗</div>
           <div className="text-base font-bold" style={{color:manipColor(signal.manipulation_probability)}}>
             {signal.manipulation_probability}% · {manipLabel(signal.manipulation_probability)}

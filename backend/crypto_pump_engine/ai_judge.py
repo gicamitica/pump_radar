@@ -5,7 +5,6 @@ import json
 import asyncio
 from typing import Any, Dict, List, Optional
 
-import google.generativeai as genai
 from openai import OpenAI
 
 

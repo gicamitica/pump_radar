@@ -13,6 +13,7 @@ import { AUTH_SYMBOLS } from '@/modules/auth/di/symbols';
 import { CORE_SYMBOLS } from '@/core/di/symbols';
 import type { IAuthService } from '@/modules/auth/application/ports/IAuthService';
 import type { ILogger } from '@/shared/utils/Logger';
+import GoogleSignInButton from '../../components/GoogleSignInButton';
 
 const schema = z.object({ 
   email: z.email('Please enter a valid email'), 
@@ -117,6 +118,14 @@ const LoginForm: React.FC<Props> = ({ onSuccess, forgotUrl }) => {
       <ActionButton type="submit" className="w-full" disabled={isSubmitting}>
         {isSubmitting ? t('signingIn') : t('signIn')}
       </ActionButton>
+
+      <div className="flex items-center gap-3 my-2">
+        <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
+        <span className="text-xs text-slate-400">or</span>
+        <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
+      </div>
+
+      <GoogleSignInButton onError={(m) => setError(m)} />
     </form>
   );
 };

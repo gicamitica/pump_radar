@@ -11,6 +11,25 @@ const getToken = () => readStoredToken();
 
 const PLANS = [
   {
+    id: 'free',
+    name: 'Free',
+    price: 0,
+    period: 'forever',
+    icon: <Zap className="h-6 w-6" />,
+    color: 'text-slate-500',
+    bg: 'bg-slate-100 dark:bg-slate-800',
+    features: [
+      'Signals Dashboard (all categories)',
+      'Coin detail pages',
+      'Signal history',
+      'On-Chain Radar',
+      'Telegram Signals feed',
+      'No credit card required',
+    ],
+    cta: 'Current plan',
+    disabled: true,
+  },
+  {
     id: 'trial',
     name: 'Trial',
     price: 0,
@@ -19,12 +38,12 @@ const PLANS = [
     color: 'text-emerald-500',
     bg: 'bg-emerald-100 dark:bg-emerald-950',
     features: [
-      'Start your 7-day free trial',
-      'Full Pro access',
+      'Everything in Free, plus:',
+      'Full Pro access for 7 days',
       'No charge today',
       'Cancel anytime before billing',
-      'Secure checkout with Stripe',
       'Reminder email before billing',
+      'Included with paid plans',
     ],
     cta: 'Included with paid plans',
     disabled: true,
@@ -40,11 +59,12 @@ const PLANS = [
     featured: true,
     badge: 'Popular',
     features: [
-      'All pump & dump signals',
-      'Full AI signal analysis',
-      'LunarCrush + CoinGecko data',
-      'Hourly signal refresh',
-      'Morning & evening signal digest',
+      'Everything in Free, plus:',
+      'AI Market Analysis (Haiku insights)',
+      'Whale Activity tracking (ETH + Solana)',
+      'Token OSINT Lab (contract security, holders, LP locks)',
+      'Manipulation Risk detection',
+      'Real-time Telegram alerts',
       'Priority support',
     ],
     cta: 'Start 7-Day Trial',
@@ -60,13 +80,11 @@ const PLANS = [
     badge: 'Save 2 months',
     badgeColor: 'bg-purple-500',
     features: [
-      'All pump & dump signals',
-      'Full AI signal analysis',
-      'Live LunarCrush data',
-      'Hourly signal refresh',
-      'Morning & evening signal digest',
-      'Priority support',
-      'Save 2 months vs monthly',
+      'Everything in Monthly, plus:',
+      'Save $60/year vs monthly billing',
+      'Priority feature requests',
+      'Locked-in price for 12 months',
+      'Cancel anytime, refund pro-rata',
     ],
     cta: 'Start 7-Day Trial',
   },
@@ -150,7 +168,7 @@ export default function SubscriptionPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {PLANS.map(plan => (
           <Card
             key={plan.id}

@@ -18,6 +18,7 @@ import { AUTH_SYMBOLS } from '@/modules/auth/di/symbols';
 import type { IAuthService } from '@/modules/auth/application/ports/IAuthService';
 import type { IAuthRepository } from '@/modules/auth/infrastructure/repositories/AuthRepository';
 import type { AuthEventHandler } from '@/modules/auth/application/handlers/AuthEventHandler';
+import { readStoredToken } from '@/shared/utils/tokenStorage';
 import type {
   AuthUser,
   AuthTokens,
@@ -54,8 +55,34 @@ export class AuthService implements IAuthService {
     this.currentUser =
       this.storage.getItem<AuthUser>(this.userStorageKey) ??
       this.storage.getSessionItem<AuthUser>(this.userStorageKey);
+    if (this.currentUser && this.isStoredTokenExpired()) {
+      // The access token outlived the stored user object. Without this check the
+      // app looks logged in while every API call fails with 401 (checkout too).
+      this.logger.info('Stored session expired, clearing it');
+      this.storage.removeItem(this.userStorageKey);
+      this.storage.removeItem(this.tokenStorageKey);
+      this.storage.removeItem(this.refreshTokenStorageKey);
+      this.currentUser = null;
+    }
+
     if (this.currentUser) {
       this.logger.info('User session restored', { userId: this.currentUser.id });
+    }
+  }
+
+  private isStoredTokenExpired(): boolean {
+    const token = readStoredToken();
+    if (!token) {
+      return true;
+    }
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1] || ''));
+      if (!payload || typeof payload.exp !== 'number') {
+        return false;
+      }
+      return payload.exp * 1000 <= Date.now();
+    } catch {
+      return false;
     }
   }
 
@@ -109,7 +136,9 @@ export class AuthService implements IAuthService {
     try {
       this.logger.info('Registration attempt', { email: dto.email });
       
-      await this.repository.register(dto);
+      let refCode: string | undefined;
+      try { refCode = localStorage.getItem('pr_ref') || undefined; } catch { /* ignore */ }
+      await this.repository.register({ ...dto, ref: dto.ref || refCode });
       
       this.logger.info('Registration successful - verification required');
     } catch (error) {

@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -165,14 +166,40 @@ function AIMarketAnalysis({ signals }: { signals: V2Signal[] }) {
     setLoading(true);
     setAnalysis('');
     try {
-      const summary = signals.map(s =>
-        `${s.symbol}(${s.category},conf:${s.confidence}%,h1:${s.price_change_h1}%,h24:${s.price_change_h24}%,whale:${s.whale_accumulation},manip:${s.manipulation_probability}%,pre_pump:${s.pre_pump_activity})`
-      ).join(' | ');
+      // Fetch live whale data (Dune-backed, cache-hit instant) for each signal in parallel
+      const whaleData = await Promise.all(signals.map(async (s) => {
+        const _n = (s.network || '').toLowerCase(); const chain = _n === 'solana' ? 'solana' : _n === 'base' ? 'base' : 'eth';
+        const addr = s.token_address;
+        if (!addr) return { symbol: s.symbol, events: 0, risk: 'UNKNOWN', netPressure: 0 };
+        try {
+          const r = await fetch(`/api/crypto/whale-movements/${chain}/${addr}`);
+          const j = await r.json();
+          const d = j?.data || {};
+          return {
+            symbol: s.symbol,
+            events: (d.events || []).length,
+            risk: d.haiku_verdict?.risk || 'UNKNOWN',
+            netPressure: Math.round(d.summary?.net_pressure_usd || 0),
+          };
+        } catch {
+          return { symbol: s.symbol, events: 0, risk: 'UNKNOWN', netPressure: 0 };
+        }
+      }));
+      const whaleMap = Object.fromEntries(whaleData.map(w => [w.symbol, w]));
+      const summary = signals.map(s => {
+        const w = whaleMap[s.symbol] || { events: 0, risk: 'UNKNOWN', netPressure: 0 };
+        return `${s.symbol}(${s.category},conf:${s.confidence}%,h1:${s.price_change_h1}%,h24:${s.price_change_h24}%,whale_events_1h:${w.events},whale_risk:${w.risk},whale_net_flow:$${w.netPressure},manip:${s.manipulation_probability}%,pre_pump:${s.pre_pump_activity})`;
+      }).join(' | ');
       const res = await fetch('/api/crypto/ai-market-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ signals_summary: summary }),
       });
+      if (res.status === 401 || res.status === 402) {
+        setAnalysis('**🔒 Pro Feature:** AI Market Analysis is available on Pro plan. Upgrade to unlock market direction insights, risk analysis and imminent moves.');
+        setLoading(false);
+        return;
+      }
       if (!res.ok) throw new Error('API error');
       const data = await res.json();
       setAnalysis(data?.data?.analysis || data?.analysis || 'Analysis unavailable.');
@@ -316,8 +343,6 @@ function SignalCard({ signal, onClick }: { signal:V2Signal; onClick:()=>void }) 
   const badge = getActionBadge(signal);
   const ch1Color = (signal.price_change_h1??0)>=0 ? 'text-emerald-400' : 'text-red-400';
   const ch24Color = (signal.price_change_h24??0)>=0 ? 'text-emerald-400' : 'text-red-400';
-  const wc = signal.whale_score>=70 ? 'text-blue-400' : signal.whale_score>=40 ? 'text-amber-400' : 'text-muted-foreground';
-  const wBg = signal.whale_accumulation ? 'bg-blue-500/10 border border-blue-500/20' : 'bg-muted/40';
   const mc = manipColor(signal.manipulation_probability);
   // Tier dupa confidence: tare (>=75), normal (50-74), slab (<50)
   const tier = signal.confidence>=75 ? 'strong' : signal.confidence>=50 ? 'normal' : 'weak';
@@ -337,7 +362,7 @@ function SignalCard({ signal, onClick }: { signal:V2Signal; onClick:()=>void }) 
           {signal.symbol.slice(0,2)}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-bold text-base">{signal.symbol}</div>
+          <div className="font-bold text-base flex items-center gap-1">{signal.symbol}<FreshnessBadge network={signal.network} address={signal.token_address}/></div>
           <div className="text-xs text-muted-foreground">{signal.network} · {signal.verdict}</div>
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -367,13 +392,10 @@ function SignalCard({ signal, onClick }: { signal:V2Signal; onClick:()=>void }) 
         ))}
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div className={`rounded-lg p-2 ${wBg}`}>
+        <div className="bg-muted/40 rounded-lg p-2">
           <div className="text-[10px] text-muted-foreground">🐋 Whale</div>
-          <div className={`text-xs font-bold ${wc}`}>{signal.whale_accumulation ? 'Accumulating' : 'Not accumulating'}</div>
-          <div className={`text-[10px] font-bold ${wc}`}>Score: {signal.whale_score}/100</div>
-          <div className="h-1 bg-muted rounded-full overflow-hidden mt-1">
-            <div className="h-full rounded-full" style={{width:`${signal.whale_score}%`, background: signal.whale_score>=70?'#3b82f6':signal.whale_score>=40?'#f59e0b':'#6b7280'}}/>
-          </div>
+          <div className="text-xs font-bold text-blue-400">On-chain ↗</div>
+          <div className="text-[10px] text-muted-foreground mt-1">Click card for live data</div>
         </div>
         <div className="bg-muted/40 rounded-lg p-2">
           <div className="text-[10px] text-muted-foreground">Manip. Risk</div>
@@ -621,6 +643,32 @@ export default function SignalsDashboard({ forcedTab }: Props = {}) {
       </div>
 
       {/* Tab pills */}
+      {/* Signal freshness legend */}
+      <div className="mb-4 rounded-xl border border-slate-800 bg-slate-900/50 p-3">
+        <div className="text-xs font-bold uppercase tracking-wider text-indigo-300 mb-2">Signal freshness</div>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md" style={{background:'#16a34a20'}}>
+            <span style={{fontSize:14}}>🔥</span>
+            <span style={{color:'#16a34a', fontWeight:700}}>FRESH</span>
+            <span className="text-muted-foreground ml-1">peak &lt; 30min ago</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md" style={{background:'#eab30820'}}>
+            <span style={{fontSize:14}}>⏰</span>
+            <span style={{color:'#eab308', fontWeight:700}}>AGED</span>
+            <span className="text-muted-foreground ml-1">peak 30min-2h</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md" style={{background:'#f9731620'}}>
+            <span style={{fontSize:14}}>🕰️</span>
+            <span style={{color:'#f97316', fontWeight:700}}>LATE</span>
+            <span className="text-muted-foreground ml-1">peak 2h-6h, entry risky</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md" style={{background:'#71717a20'}}>
+            <span style={{fontSize:14}}>💀</span>
+            <span style={{color:'#71717a', fontWeight:700}}>DEAD</span>
+            <span className="text-muted-foreground ml-1">pump over, &gt;20% below peak</span>
+          </div>
+        </div>
+      </div>
       <div className="flex gap-1 flex-wrap">
         <button onClick={()=>setFilter('all')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-all ${filter==='all' ? 'bg-primary/10 text-primary border border-primary/30' : 'text-muted-foreground hover:text-foreground border border-transparent'}`}>
@@ -668,5 +716,59 @@ export default function SignalsDashboard({ forcedTab }: Props = {}) {
         <Shield className="h-3 w-3"/>AI-generated signals. Not financial advice.
       </p>
     </div>
+  );
+}
+
+// ============ FRESHNESS BADGE ============
+const _freshnessCache: Record<string, {data:any, ts:number}> = {};
+const FRESHNESS_TTL = 60000; // 1 min
+
+function FreshnessBadge({ network, address }: { network?: string; address?: string }) {
+  const [data, setData] = React.useState<any>(null);
+  React.useEffect(() => {
+    if (!network || !address) return;
+    const key = `${network}:${address}`;
+    const cached = _freshnessCache[key];
+    if (cached && Date.now() - cached.ts < FRESHNESS_TTL) {
+      setData(cached.data);
+      return;
+    }
+    let cancel = false;
+    fetch(`/api/crypto/signal-freshness/${network}/${address}`)
+      .then(r => r.json())
+      .then(d => {
+        if (cancel) return;
+        _freshnessCache[key] = {data: d, ts: Date.now()};
+        setData(d);
+      })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [network, address]);
+
+  if (!data || !data.status) return null;
+  const s = data.status;
+  const cfg: Record<string, {emoji:string; label:string; bg:string; color:string; title:string}> = {
+    fresh:   {emoji:'🔥', label:'FRESH',  bg:'#16a34a20', color:'#16a34a', title:'Recent peak (<30min). Active pump right now.'},
+    aged:    {emoji:'⏰', label:'AGED',   bg:'#eab30820', color:'#eab308', title:'Peak 30min-2h ago. May still have momentum.'},
+    late:    {emoji:'🕰️', label:'LATE',   bg:'#f9731620', color:'#f97316', title:'Peak 2h-6h ago. Too late for a good entry.'},
+    dead:    {emoji:'💀', label:'DEAD',   bg:'#71717a20', color:'#71717a', title:'Pump is over. Price >20% below peak.'},
+    no_pump: {emoji:'',   label:'',       bg:'',           color:'',        title:''},
+    unknown: {emoji:'',   label:'',       bg:'',           color:'',        title:''},
+    error:   {emoji:'',   label:'',       bg:'',           color:'',        title:''},
+  };
+  const c = cfg[s];
+  if (!c || !c.emoji) return null;
+  return (
+    <span
+      title={c.title}
+      style={{
+        background: c.bg, color: c.color, fontSize: 12, padding: '3px 8px',
+        borderRadius: 6, fontWeight: 700, letterSpacing: 0.4, marginLeft: 6,
+        display: 'inline-flex', alignItems: 'center', gap: 4
+      }}
+    >
+      <span style={{fontSize: 16, lineHeight: 1}}>{c.emoji}</span>
+      <span>{c.label}</span>
+    </span>
   );
 }
