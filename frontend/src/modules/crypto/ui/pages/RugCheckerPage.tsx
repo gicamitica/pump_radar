@@ -73,9 +73,9 @@ export default function RugCheckerPage() {
       <div className="mx-auto max-w-3xl px-5 py-14">
         <header className="mb-10">
           <p className="mb-3 text-xs uppercase tracking-[0.2em] text-slate-500">Token safety</p>
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Check a token before you buy</h1>
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Honeypot &amp; rug pull check</h1>
           <p className="mt-3 max-w-xl text-slate-400">
-            Paste a contract address. We check what can be checked and tell you plainly what we could not.
+            Paste a contract address. We check what can be checked and say plainly what we could not.
           </p>
         </header>
 
