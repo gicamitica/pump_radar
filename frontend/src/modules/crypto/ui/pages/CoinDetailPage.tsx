@@ -372,7 +372,22 @@ export default function CoinDetailPage() {
           </div>
           <div>
             <div className="text-2xl font-bold">{signal.symbol} <span className="text-sm font-normal text-muted-foreground">{signal.name}</span></div>
-            <div className="text-xs text-muted-foreground mt-0.5">{signal.network} · {signal.token_address?.slice(0,10)}...{signal.token_address?.slice(-6)}</div>
+            <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
+              <span>{signal.network} · {signal.token_address?.slice(0,10)}...{signal.token_address?.slice(-6)}</span>
+              {signal.token_address && (
+                <button
+                  title="Copy address"
+                  className="opacity-60 hover:opacity-100 transition-opacity"
+                  onClick={(e) => {
+                    const btn = e.currentTarget;
+                    navigator.clipboard.writeText(signal.token_address as string);
+                    const prev = btn.textContent;
+                    btn.textContent = 'copied';
+                    setTimeout(() => { btn.textContent = prev; }, 1500);
+                  }}
+                >&#128203;</button>
+              )}
+            </div>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border font-bold text-sm animate-pulse ${cfg.border} ${cfg.bg} ${cfg.color}`} style={{animationDuration:'2s'}}>
                 <div className="w-2 h-2 rounded-full flex-shrink-0" style={{background:cfg.hex}}/>
